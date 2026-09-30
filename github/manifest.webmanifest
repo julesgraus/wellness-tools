@@ -1,0 +1,15 @@
+{
+  "name": "Wellness",
+  "short_name": "Wellness",
+  "description": "Oefeningen om rustig te worden bij hyperventilatie en spanning, en een emotiethermometer.",
+  "lang": "nl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0e1b1c",
+  "theme_color": "#0e1b1c",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

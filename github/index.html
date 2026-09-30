@@ -1,0 +1,2009 @@
+<!doctype html>
+<!--
+  Wellness: single-file app (HTML + CSS + JS, no build step, no dependencies).
+  UI text is Dutch; code comments are English.
+
+  HOW TO FIND THINGS
+  Every tool has a marker in each layer. Search for the marker text to jump there
+  (line numbers are deliberately not listed, they change with every edit).
+
+    Tool / part          CSS                    HTML                    JS
+    -------------------  ---------------------  ----------------------  ----------------------
+    Theme (dark only)    [CSS] THEME            -                       -
+    Breathe (Ademen)     [CSS] BREATHE          [HTML] BREATHE          [JS] BREATHE
+    Muscles (Spieren)    [CSS] MUSCLES          [HTML] MUSCLES          [JS] MUSCLES
+    River (Rivier)       [CSS] RIVER            [HTML] RIVER            [JS] RIVER
+    Grounding (Aarden)   [CSS] GROUNDING        [HTML] GROUNDING        [JS] GROUNDING
+    Thermometer          [CSS] THERMOMETER      [HTML] THERMOMETER      [JS] THERMOMETER
+    Disclaimer           [CSS] DISCLAIMER       [HTML] DISCLAIMER       [JS] DISCLAIMER
+    Bottom tab bar       [CSS] NAVIGATION       <nav class="tabs">      [JS] TABS
+    Offline support      -                      -                       [JS] OFFLINE (see sw.js)
+
+  STRUCTURE
+  - <style>: shared tokens and base styles first, then one block per tool.
+  - <main>: one <section role="tabpanel"> per tool; the id matches the tab link (#ademen, ...).
+  - Modern JavaScript only (ES2022+, current evergreen browsers); no support for old browsers.
+  - The tiny classic <script> in <head> swaps the "no-js" class before first paint.
+  - First <script type="module">: breathe, grounding, muscles, river, tabs, disclaimer and
+    offline support. The bottom tab bar dispatches a 'tabshown' event on a panel when it
+    becomes visible.
+  - Second <script type="module">: the thermometer, self-contained.
+    Sub-markers inside it start with "---- Thermometer:".
+    Data lives in localStorage under 'emotiethermometer.v1'.
+  - Elements with class "no-js-only" / "js-only" provide a fallback without JavaScript.
+
+  When changing index.html for a new upload, bump VERSION in sw.js so phones fetch the new file.
+-->
+<html lang="nl" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Wellness</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Wellness">
+<meta name="theme-color" content="#0e1b1c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<script>document.documentElement.className = document.documentElement.className.replace('no-js', 'js');</script>
+<style>
+  /* ==== [CSS] THEME: dark only (no light palette) ==== */
+  :root {
+    --bg: #0e1b1c;
+    --surface: #16292a;
+    --text: #e2eeeb;
+    --muted: #9bb4af;
+    --accent: #6cc2b5;
+    --accent-strong: #8fd6ca;
+    --accent-soft: #1e3d3b;
+    --orb-a: #2f6e66;
+    --orb-b: #57a89a;
+    --border: #24403f;
+    --tense: #e59a6a;
+    --bank: #2f4a2c;
+    --bank-dark: #263e24;
+    --water-a: #1f4a57;
+    --water-b: #173a46;
+    --ripple: rgba(255, 255, 255, .12);
+    --leaf-text: #1f3a17;
+    --body: #4cc2b6;
+    --mind: #a58ceb;
+    --danger: #ff8a80;
+    --radius: 18px;
+    --nav-h: 68px;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 0 16px; }
+
+
+  main { padding-top: 16px; }
+  section { padding: 12px 0 8px; }
+  section > h2 { font-size: 1.25rem; font-weight: 600; margin: 8px 0 12px; }
+  h3 { font-size: 1.05rem; margin: 20px 0 6px; }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 1.3em; }
+  li { margin-bottom: 6px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+
+  /* Buttons */
+  button { font: inherit; color: inherit; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-height: 52px; padding: 0 28px;
+    border-radius: 999px; border: 0;
+    background: var(--accent); color: #0e1b1c;
+    font-weight: 600; font-size: 1.05rem;
+    cursor: pointer; text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn-ghost { background: var(--accent-soft); color: var(--text); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+  /* Show/hide depending on JavaScript support */
+  .js-only { display: none; }
+  .js .js-only { display: block; }
+  .js .no-js-only { display: none; }
+
+  /* ==== [CSS] BREATHE ==== */
+  .breathe { text-align: center; }
+  .orb-wrap {
+    position: relative;
+    width: min(72vw, 300px); aspect-ratio: 1;
+    margin: 8px auto 4px;
+    display: grid; place-items: center;
+  }
+  .orb-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px dashed var(--border);
+  }
+  .orb-fill {
+    --s: .55;
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, var(--orb-a), var(--orb-b));
+    transform: scale(var(--s));
+    box-shadow: 0 0 40px 4px color-mix(in srgb, var(--orb-b) 35%, transparent);
+    will-change: transform;
+  }
+  .orb-text { position: relative; z-index: 1; line-height: 1.2; }
+  .orb-phase { font-size: 1.45rem; font-weight: 650; color: #f2fbf9; }
+  .orb-count { font-size: 2.6rem; font-weight: 300; color: #f2fbf9; font-variant-numeric: tabular-nums; min-height: 1.2em; }
+  .wave-view { width: min(92vw, 380px); margin: 8px auto 4px; }
+  .wave-text { display: flex; justify-content: center; align-items: baseline; gap: 14px; min-height: 3.4rem; }
+  .wave-text .orb-phase, .wave-text .orb-count { color: var(--text); }
+  .wave { display: block; width: 100%; height: auto; overflow: hidden; }
+  .wave-track, .wave-done { fill: none; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+  .wave-track { stroke: var(--accent-soft); }
+  .wave-done { stroke: var(--orb-b); }
+  .wave-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 3; filter: drop-shadow(0 0 8px var(--orb-b)); }
+  .wave-labels text { fill: var(--muted); font-size: 14px; text-anchor: middle; }
+  .phase-sub { color: var(--muted); min-height: 1.5em; margin: 4px 0 2px; }
+  .rounds { color: var(--muted); font-size: .9rem; min-height: 1.4em; margin: 0; }
+  .encourage {
+    margin: 8px auto 0; max-width: 320px;
+    background: var(--accent-soft); border-radius: 12px; padding: 8px 12px;
+    font-size: .95rem;
+  }
+
+  .controls { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 14px; }
+  .controls .btn { min-width: 180px; }
+
+  .segmented {
+    display: inline-flex; background: var(--accent-soft); border-radius: 999px; padding: 4px; gap: 2px;
+  }
+  .segmented button {
+    border: 0; background: transparent; min-height: 44px; padding: 0 16px;
+    border-radius: 999px; cursor: pointer; font-weight: 500; font-variant-numeric: tabular-nums;
+  }
+  .segmented button[aria-checked="true"] { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 650; }
+  .rhythm-label { color: var(--muted); font-size: .9rem; margin: 0 0 -8px; }
+  .rhythm-info { max-width: 360px; margin: -4px 0 0; font-size: .92rem; color: var(--muted); }
+  .rhythm-info strong { color: var(--text); }
+  .rhythms dt { font-weight: 650; margin-top: 12px; }
+  .rhythms dt:first-child { margin-top: 0; }
+  .rhythms dd { margin: 2px 0 0; }
+  .sources { font-size: .82rem; color: var(--muted); }
+  .sources a { color: inherit; }
+
+  .toggles { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    min-height: 44px; padding: 0 16px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface); cursor: pointer;
+  }
+  .toggle .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+  .toggle[aria-pressed="true"] { border-color: var(--accent); }
+  .toggle[aria-pressed="true"] .dot { background: var(--accent); }
+
+  /* ==== [CSS] GROUNDING ==== */
+  .g-step { color: var(--muted); font-size: .9rem; margin: 0 0 6px; }
+  .g-num { font-size: 3.2rem; font-weight: 300; line-height: 1; color: var(--accent-strong); }
+  .g-title { font-size: 1.3rem; font-weight: 600; margin: 6px 0 6px; }
+  .g-hint { color: var(--muted); }
+  .g-dots { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0 20px; }
+  .g-dot {
+    width: 52px; height: 52px; border-radius: 50%;
+    border: 2px solid var(--accent); background: transparent; cursor: pointer;
+    display: grid; place-items: center; font-weight: 600; color: var(--accent-strong);
+  }
+  .g-dot[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+  .g-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .g-progress { display: flex; gap: 6px; margin-bottom: 14px; }
+  .g-progress span { flex: 1; height: 5px; border-radius: 3px; background: var(--accent-soft); }
+  .g-progress span.done { background: var(--accent); }
+
+  /* ==== [CSS] MUSCLES (progressive muscle relaxation) ==== */
+  .pmr-phase { font-weight: 650; font-size: 1.05rem; min-height: 1.5em; margin: 0 0 4px; color: var(--accent-strong); }
+  .pmr-phase.tense { color: var(--tense); }
+  .pmr-bar { height: 10px; border-radius: 5px; background: var(--accent-soft); overflow: hidden; margin: 14px 0 6px; }
+  .pmr-bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 5px; }
+  .pmr-bar span.tense { background: var(--tense); }
+  .pmr-count { font-size: 2rem; font-weight: 300; font-variant-numeric: tabular-nums; min-height: 1.3em; margin-bottom: 12px; }
+  .g-actions .btn-small { padding: 0 18px; }
+
+  /* ==== [CSS] RIVER (leaves on a stream) ==== */
+  .river {
+    position: relative; height: 240px; border-radius: var(--radius); overflow: hidden;
+    background:
+      linear-gradient(to bottom, var(--bank) 0 14%, var(--bank-dark) 14% 17%, transparent 17% 83%, var(--bank-dark) 83% 86%, var(--bank) 86%),
+      linear-gradient(to bottom, var(--water-a), var(--water-b));
+  }
+  .ripples { position: absolute; left: 0; top: 17%; height: 66%; width: 200%; animation: flow 18s linear infinite; }
+  .ripples svg { width: 100%; height: 100%; display: block; }
+  .ripples path { fill: none; stroke: var(--ripple); stroke-width: 2; stroke-linecap: round; }
+  @keyframes flow { from { transform: translateX(-50%); } to { transform: translateX(0); } }
+  .leaf { position: absolute; left: 0; top: 0; will-change: transform, opacity; }
+  .leaf-bob { animation: bob 3.2s ease-in-out infinite alternate; }
+  @keyframes bob { from { transform: translateY(-4px) rotate(-3deg); } to { transform: translateY(4px) rotate(3deg); } }
+  .leaf-body {
+    position: relative; max-width: 210px; min-width: 70px; min-height: 44px; padding: 10px 20px;
+    border-radius: 50% 0 50% 0 / 60% 0 60% 0;
+    background: linear-gradient(135deg, var(--c1), var(--c2));
+    color: var(--leaf-text); font-size: .9rem; line-height: 1.25; font-weight: 550;
+    display: grid; place-items: center; text-align: center;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, .15); word-break: break-word;
+  }
+  .leaf-body::before {
+    content: ""; position: absolute; left: 10%; right: 10%; top: 50%; height: 1.5px;
+    background: rgba(0, 0, 0, .12); transform: rotate(-8deg);
+  }
+  .leaf-body::after {
+    content: ""; position: absolute; right: -14px; bottom: 6px; width: 18px; height: 2px;
+    background: var(--c2); transform: rotate(-25deg); border-radius: 2px;
+  }
+  .leaf-body span { position: relative; }
+  .river-form { display: flex; gap: 8px; margin-top: 14px; }
+  .river-form input {
+    flex: 1; min-width: 0; min-height: 52px; padding: 0 16px;
+    border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit;
+  }
+  .river-form .btn { padding: 0 20px; white-space: nowrap; }
+  .river-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+  .river-count { color: var(--muted); font-size: .9rem; margin: 0; }
+
+  /* Explanation blocks below the breathing exercise */
+  .explain { text-align: left; margin-top: 28px; }
+  .quotes { list-style: none; padding: 0; }
+  .quotes li {
+    background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; margin-bottom: 8px;
+    font-size: 1.05rem;
+  }
+  .small { font-size: .88rem; color: var(--muted); }
+
+  /* ==== [CSS] THERMOMETER ==== */
+  #thermo p { margin: 0; }
+  #thermo h3 { margin: 0; }
+  .t-last { font-size: .9rem; color: var(--muted); margin: -4px 0 14px !important; }
+  .t-last b { color: var(--text); font-weight: 600; }
+  .t-sub { display: flex; margin-bottom: 14px; }
+  .t-sub button { flex: 1; }
+  .t-banner { background: #3d3212; color: #f5e3a8; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; font-size: .92rem; }
+  .muted { color: var(--muted); }
+  .link { border: 0; background: none; padding: 0; color: var(--accent-strong); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+  .link.danger { color: var(--danger); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid currentColor; }
+
+  .meter { border-top: 4px solid var(--c); display: flex; flex-direction: column; gap: 12px; }
+  .meter[data-meter="body"] { --c: var(--body); }
+  .meter[data-meter="mind"] { --c: var(--mind); }
+  .meter-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .meter-head h3 { color: var(--c); font-size: 1.2rem; overflow-wrap: anywhere; }
+  .edit-btn {
+    border: 0; background: none; color: var(--muted); display: inline-flex; gap: 5px; align-items: center;
+    cursor: pointer; font-size: .88rem; min-height: 44px; padding: 0 4px; flex: 0 0 auto;
+  }
+  .edit-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .meter-main { display: flex; gap: 14px; align-items: stretch; }
+  .thermo-col { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; width: 96px; }
+  .end-label { font-size: .75rem; color: var(--muted); text-align: center; line-height: 1.25; min-height: 1.25em; max-width: 96px; }
+  svg.thermo { width: 90px; height: 250px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; display: block; }
+  svg.thermo:active { cursor: grabbing; }
+  svg.thermo:focus-visible { border-radius: 12px; }
+  .thermo .glass { fill: var(--surface); stroke: var(--border); stroke-width: 2; }
+  .thermo .track { fill: #1e3534; }
+  .thermo .tick { stroke: var(--muted); stroke-width: 1.5; opacity: .55; }
+  .thermo .tick.major { opacity: .9; }
+  .thermo text { fill: var(--muted); font-size: 11px; font-family: system-ui, sans-serif; }
+  .thermo .shine { fill: #fff; opacity: .25; }
+  .side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .readout { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+  .num { font-size: 2.6rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; min-width: 1.3em; }
+  .num small { font-size: .95rem; font-weight: 500; color: var(--muted); margin-left: 2px; }
+  .word { font-weight: 600; }
+  .steppers { display: flex; gap: 8px; }
+  .stepper {
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--accent-soft);
+    cursor: pointer; font-size: 1.25rem; line-height: 1; display: grid; place-items: center;
+  }
+  .chips-label { font-size: .82rem; color: var(--muted); margin-bottom: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 5px 12px;
+    font-size: .88rem; cursor: pointer; min-height: 34px;
+  }
+  .chip[aria-pressed="true"] { background: var(--c, var(--accent)); border-color: var(--c, var(--accent)); color: #0e1b1c; }
+  .chip.add { border-style: dashed; color: var(--muted); }
+  .chip.del::after { content: " ×"; color: var(--muted); }
+  .chip-input {
+    border: 1px solid var(--c, var(--accent)); border-radius: 999px; padding: 5px 12px; font-size: .88rem;
+    width: 10em; background: var(--surface); color: var(--text); outline: none; font-family: inherit;
+  }
+  .meter-edit { display: grid; gap: 12px; }
+  .meter-edit .edit-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  #thermo input[type="text"], #thermo input[type="datetime-local"], #thermo textarea {
+    border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px;
+    background: var(--bg); color: var(--text); font: inherit; font-size: 1rem;
+  }
+  #thermo textarea { width: 100%; min-height: 76px; resize: vertical; }
+  .field { display: grid; gap: 4px; }
+  .field > span { font-size: .85rem; color: var(--muted); }
+  .field input[type="text"] { width: 100%; }
+
+  .t-save label { font-weight: 600; font-size: .95rem; display: block; margin-bottom: 8px; }
+  .save-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; margin-top: 12px; }
+  .when { font-size: .9rem; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  details.tips summary { cursor: pointer; color: var(--muted); font-size: .95rem; min-height: 44px; display: flex; align-items: center; }
+  details.tips ul { margin: 4px 0 12px; color: var(--muted); font-size: .92rem; }
+
+  /* Thermometer: history (Verloop) */
+  .range { display: flex; gap: 6px; flex-wrap: wrap; }
+  .range button { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 0 14px; min-height: 36px; cursor: pointer; font-size: .9rem; }
+  .range button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .legend { display: flex; gap: 14px; font-size: .9rem; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  #chart svg { display: block; }
+  .chart-svg .grid { stroke: var(--border); stroke-width: 1; }
+  .chart-svg .sep { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+  .chart-svg text { fill: var(--muted); font-size: 11px; font-family: system-ui, sans-serif; }
+  .chart-svg .line { fill: none; stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+  .chart-svg .body { stroke: var(--body); }
+  .chart-svg .mind { stroke: var(--mind); }
+  .chart-svg circle.body { fill: var(--body); stroke: var(--surface); stroke-width: 1.5; }
+  .chart-svg circle.mind { fill: var(--mind); stroke: var(--surface); stroke-width: 1.5; }
+  .empty { padding: 28px 8px; text-align: center; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stats .stat:first-child { grid-column: 1 / -1; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+  .stat .k { font-size: .8rem; color: var(--muted); }
+  .stat .v { font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .d { font-size: .8rem; color: var(--muted); }
+  .stat h3 { font-size: 1rem; margin-bottom: 8px !important; }
+  .insights { display: grid; gap: 10px; margin-top: 10px; }
+  .insights .chip { cursor: default; }
+  .count { opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .entries { margin-top: 20px; }
+  .entries > h3 { font-size: 1.1rem; }
+  .day { margin: 18px 0 6px !important; font-size: .95rem; color: var(--muted); font-weight: 600; }
+  .entries ul { list-style: none; margin: 0; padding: 0; }
+  .entry { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--border); align-items: start; margin: 0; }
+  .entry-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .9rem; }
+  .entry-vals { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: .95rem; }
+  .entry-vals span { display: inline-flex; align-items: center; gap: 6px; }
+  .t-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .entry .chips { margin-top: 6px; }
+  .entry .chip { font-size: .8rem; padding: 2px 9px; min-height: 0; cursor: default; }
+  .entry-note { margin-top: 6px !important; white-space: pre-wrap; font-size: .92rem; }
+  .entry .link { font-size: .85rem; }
+  .t-data { margin-top: 28px; }
+  .t-data h3 { font-size: 1.05rem; margin-bottom: 6px !important; }
+  .t-data .data-actions { display: grid; gap: 8px; margin-top: 12px; }
+  .t-data .btn { min-height: 46px; font-size: .98rem; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px); z-index: 20;
+    transform: translate(-50%, 12px); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 12px;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; font-weight: 500; max-width: calc(100% - 32px);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+
+  /* ==== [CSS] DISCLAIMER ==== */
+  .disclaimer {
+    width: min(100% - 32px, 460px); max-height: calc(100% - 32px); overflow-y: auto;
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 20px 20px;
+    background: var(--surface); color: var(--text);
+  }
+  .disclaimer::backdrop { background: rgba(0, 0, 0, .6); }
+  .disclaimer h2 { font-size: 1.25rem; margin: 0 0 10px; }
+  .disclaimer p { margin: 0 0 12px; }
+  .disclaimer .urgent { background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; font-size: .95rem; }
+  .disclaimer .btn { width: 100%; margin-top: 4px; }
+
+  /* ==== [CSS] NAVIGATION (bottom tab bar) ==== */
+  nav.tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav.tabs .inner { max-width: 560px; margin: 0 auto; display: flex; }
+  nav.tabs a {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    height: var(--nav-h); text-decoration: none; color: var(--muted); font-size: min(.78rem, 2.8vw); font-weight: 500; min-width: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  nav.tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  nav.tabs a[aria-selected="true"] { color: var(--accent-strong); font-weight: 650; }
+  nav.tabs a[aria-selected="true"] svg { stroke-width: 2.2; }
+
+  /* Without JS: sections stacked, separated by a line */
+  .no-js section + section { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 20px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <main>
+    <!-- ==== [HTML] BREATHE ==== -->
+    <div class="no-js-only card small">
+      <strong>Goed om te weten:</strong> deze app is geen medisch hulpmiddel en vervangt geen arts of behandeling. Twijfel je over je klachten? Neem contact op met je huisarts. Bij acute nood: bel 112.
+    </div>
+
+    <section id="ademen" role="tabpanel" aria-labelledby="tab-ademen" class="breathe">
+      <h2 class="no-js-only">Ademen</h2>
+
+      <div class="no-js-only card" style="text-align:left">
+        <p><strong>Adem 4 tellen in</strong> door je neus.</p>
+        <p><strong>Adem 6 tellen uit</strong>, langzaam, door je mond.</p>
+        <p>Herhaal dit ongeveer 10 keer. De uitademing is steeds langer dan de inademing. Dat maakt je rustig.</p>
+        <p class="small" style="margin:0">Tip: leg een hand op je buik en voel hem rustig op en neer gaan.</p>
+      </div>
+
+      <div class="js-only">
+        <div class="orb-wrap" id="orb-view" aria-hidden="true">
+          <div class="orb-ring"></div>
+          <div class="orb-fill" id="orb"></div>
+          <div class="orb-text">
+            <div class="orb-phase js-phase">Klaar?</div>
+            <div class="orb-count js-count"></div>
+          </div>
+        </div>
+        <div class="wave-view" id="wave-view" aria-hidden="true" hidden>
+          <div class="wave-text">
+            <span class="orb-phase js-phase">Klaar?</span>
+            <span class="orb-count js-count"></span>
+          </div>
+          <svg class="wave" viewBox="0 0 320 170">
+            <defs>
+              <!-- The part left of the dot (already breathed) gets colour -->
+              <clipPath id="wave-clip"><rect x="0" y="0" width="110" height="170"/></clipPath>
+              <!-- Soft fade at the left and right edges -->
+              <linearGradient id="wave-fade-grad">
+                <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+                <stop offset=".15" stop-color="#fff" stop-opacity="1"/>
+                <stop offset=".85" stop-color="#fff" stop-opacity="1"/>
+                <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+              </linearGradient>
+              <mask id="wave-fade" maskUnits="userSpaceOnUse" x="0" y="0" width="320" height="170">
+                <rect x="0" y="0" width="320" height="170" fill="url(#wave-fade-grad)"/>
+              </mask>
+            </defs>
+            <g mask="url(#wave-fade)">
+              <g id="wave-move">
+                <path class="wave-track" id="wave-track"/>
+                <g class="wave-labels" id="wave-labels"></g>
+              </g>
+              <g clip-path="url(#wave-clip)">
+                <g id="wave-move-done"><path class="wave-done" id="wave-done"/></g>
+              </g>
+            </g>
+            <circle class="wave-dot" id="wave-dot" r="11" cx="110"/>
+          </svg>
+        </div>
+        <p class="phase-sub" id="phase-sub" aria-live="polite"></p>
+        <p class="rounds" id="rounds"></p>
+        <p class="encourage" id="encourage" hidden>Goed bezig. Ga door zolang je wilt.</p>
+
+        <div class="controls">
+          <button class="btn" id="start" type="button">Start</button>
+
+          <p class="rhythm-label" id="view-label">Weergave</p>
+          <div class="segmented" role="radiogroup" aria-labelledby="view-label" id="views">
+            <button type="button" role="radio" data-v="cirkel" aria-checked="true">Cirkel</button>
+            <button type="button" role="radio" data-v="golf" aria-checked="false">Golf</button>
+          </div>
+
+          <p class="rhythm-label" id="rhythm-label">Ritme (tellen in – uit)</p>
+          <div class="segmented" role="radiogroup" aria-labelledby="rhythm-label" id="rhythms">
+            <button type="button" role="radio" data-r="3-5" aria-checked="false">3 – 5</button>
+            <button type="button" role="radio" data-r="4-6" aria-checked="true">4 – 6</button>
+            <button type="button" role="radio" data-r="4-7-8" aria-checked="false">4 – 7 – 8</button>
+          </div>
+          <p class="rhythm-info" id="rhythm-info" aria-live="polite"></p>
+
+          <div class="toggles">
+            <button class="toggle" type="button" id="sound" aria-pressed="false"><span class="dot"></span>Geluid</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="explain">
+      <h3 id="ritme-uitleg">Welk ritme kies ik?</h3>
+      <div class="card">
+        <p>Het belangrijkste is dat je <strong>langzamer</strong> gaat ademen. Adem daarbij <strong>niet extra diep</strong>, maar rustig en zacht: te diep ademen houdt de klachten juist in stand. Normaal adem je zo’n 12 tot 20 keer per minuut; bij hyperventilatie vaak sneller.</p>
+        <dl class="rhythms">
+          <dt>4 – 6 (standaard)</dt>
+          <dd>4 tellen in, 6 tellen uit: <strong>6 ademhalingen per minuut</strong>. Dit ritme wordt bij hyperventilatie het vaakst aangeraden. Bij ongeveer 6 ademhalingen per minuut lopen je hartslag en ademhaling mooi in de pas, wat je lichaam helpt te kalmeren. Ook goed om dagelijks even mee te oefenen.</dd>
+          <dt>3 – 5 (makkelijker)</dt>
+          <dd>3 tellen in, 5 tellen uit: <strong>7 à 8 ademhalingen per minuut</strong>. Een goede start als je erg benauwd bent of als 4 – 6 nog te langzaam voelt. Gaat het beter? Stap dan over op 4 – 6.</dd>
+          <dt>4 – 7 – 8 (om te ontspannen)</dt>
+          <dd>4 tellen in, 7 tellen vasthouden, 8 tellen uit: <strong>ruim 3 ademhalingen per minuut</strong>. Bekend als oefening om tot rust te komen of in slaap te vallen. Het vasthouden kan tijdens paniek juist benauwd voelen. Voelt het zo? Kies dan 4 – 6. Er is nog weinig groot onderzoek naar dit ritme.</dd>
+        </dl>
+        <p style="margin:12px 0 0">Bij alle ritmes duurt de uitademing langer dan de inademing. Veel mensen vinden dat prettig en rustgevend. Onderzoek laat zien dat vooral het <strong>langzaam ademen zelf</strong> helpt; kies dus het ritme dat voor jou het fijnst voelt. Het werkt het best als je ook oefent op momenten dat je rustig bent, een paar minuten per dag.</p>
+      </div>
+      <h3>Wat gebeurt er bij hyperventilatie?</h3>
+      <div class="card">
+        <p>Je ademt sneller of dieper dan je lichaam nodig heeft. Daardoor adem je te veel koolzuur (CO₂) uit. Dat geeft vervelende maar <strong>onschuldige</strong> klachten:</p>
+        <ul>
+          <li>tintelingen in handen, voeten of rond je mond</li>
+          <li>duizeligheid of een licht gevoel in je hoofd</li>
+          <li>het gevoel dat je niet genoeg lucht krijgt</li>
+          <li>hartkloppingen, een strak gevoel op je borst</li>
+        </ul>
+        <p style="margin:0">Het voelt eng, maar <strong>je krijgt genoeg zuurstof</strong>. Als je ademhaling rustiger wordt, verdwijnen de klachten vanzelf, meestal binnen een paar minuten.</p>
+      </div>
+
+      <h3>Zeg tegen jezelf</h3>
+      <ul class="quotes">
+        <li>“Dit gaat voorbij.”</li>
+        <li>“Ik ben veilig. Dit is niet gevaarlijk.”</li>
+        <li>“Ik heb genoeg lucht. Ik adem gewoon rustig uit.”</li>
+        <li>“Ik heb dit eerder gehad en het ging over.”</li>
+      </ul>
+
+      <h3>Wat helpt</h3>
+      <div class="card">
+        <ul style="margin:0">
+          <li><strong>Langzaam uitademen</strong>: langer uit dan in. Bijvoorbeeld door getuite lippen, alsof je door een rietje blaast.</li>
+          <li>Adem <strong>door je neus</strong> in, niet door je mond.</li>
+          <li>Laat je <strong>schouders zakken</strong> en ontspan je kaak.</li>
+          <li>Ga zitten, zet <strong>je voeten plat op de grond</strong> en voel de vloer.</li>
+          <li>Leg een hand op je buik en adem naar die hand toe.</li>
+          <li>Neem een slokje koud water.</li>
+        </ul>
+      </div>
+
+      <p class="sources">Bronnen: <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC10395759/">Birdee e.a. (2023), langzaam ademen en langere uitademing</a> · <a href="https://link.springer.com/article/10.1007/s10484-024-09637-2">overzichtsstudie resonantie-ademhaling (2024)</a> · <a href="https://www.gezondheidenwetenschap.be/richtlijnen/hyperventilatie">Gezondheid en Wetenschap: hyperventilatie</a></p>
+      </div>
+    </section>
+
+    <!-- ==== [HTML] MUSCLES ==== -->
+    <section id="spieren" role="tabpanel" aria-labelledby="tab-spieren">
+      <h2>Spierontspanning</h2>
+      <p class="g-hint">Span steeds één spiergroep 5 tellen aan en laat dan 15 tellen los. Zo voel je het verschil tussen spanning en ontspanning, en zakt de spanning in je lijf. Duurt ongeveer 3 minuten.</p>
+
+      <div class="no-js-only card">
+        <p>Span elke spiergroep <strong>5 tellen</strong> aan, laat dan los en voel <strong>15 tellen</strong> na. Blijf rustig doorademen.</p>
+        <ol style="margin:0">
+          <li><strong>Handen</strong>: maak twee vuisten.</li>
+          <li><strong>Armen</strong>: buig je armen en span je bovenarmen aan.</li>
+          <li><strong>Schouders</strong>: trek je schouders op naar je oren.</li>
+          <li><strong>Gezicht</strong>: knijp je ogen dicht en klem je kaken op elkaar.</li>
+          <li><strong>Buik</strong>: span je buikspieren aan.</li>
+          <li><strong>Benen</strong>: duw je hielen in de grond.</li>
+          <li><strong>Voeten</strong>: krul je tenen naar beneden.</li>
+        </ol>
+      </div>
+
+      <div class="js-only card" id="pmr">
+        <div class="g-progress" id="pmr-progress" aria-hidden="true"></div>
+        <p class="g-step" id="pmr-step"></p>
+        <div class="g-title" id="pmr-title"></div>
+        <p class="pmr-phase" id="pmr-phase" aria-live="polite"></p>
+        <p class="g-hint" id="pmr-text" style="min-height:3.1em"></p>
+        <div class="pmr-bar" aria-hidden="true"><span id="pmr-bar"></span></div>
+        <div class="pmr-count" id="pmr-count" aria-hidden="true"></div>
+        <div class="g-actions">
+          <button class="btn btn-ghost btn-small" id="pmr-prev" type="button" hidden>Vorige</button>
+          <button class="btn" id="pmr-start" type="button">Start</button>
+          <button class="btn btn-ghost btn-small" id="pmr-next" type="button" hidden>Volgende</button>
+        </div>
+      </div>
+
+      <p class="small">Span aan tot ongeveer de helft van je kracht: het mag nooit pijn doen. Heb je ergens een blessure of pijn? Sla die spiergroep over. Het werkt het best als je het vaker oefent, ook op rustige momenten.</p>
+      <p class="sources">Bronnen: <a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2427027/">Manzoni e.a. (2008), meta-analyse ontspanningstraining bij angst</a> · <a href="https://www.utupub.fi/handle/11111/50540">systematische review spierontspanning bij stress, angst en depressie</a></p>
+    </section>
+
+    <!-- ==== [HTML] RIVER ==== -->
+    <section id="rivier" role="tabpanel" aria-labelledby="tab-rivier">
+      <h2>Blaadjes op de rivier</h2>
+      <p class="g-hint">Stel je voor dat je aan de kant van een rustige rivier zit. Komt er een gedachte, zorg of gevoel op? Leg hem op een blaadje en kijk hoe hij wegdrijft. Je hoeft hem niet weg te duwen of op te lossen. Je kijkt alleen.</p>
+
+      <div class="no-js-only card">
+        <ol style="margin:0">
+          <li>Ga rustig zitten en doe je ogen dicht, of kijk naar een vast punt.</li>
+          <li>Stel je een rivier voor waarop blaadjes langzaam voorbij drijven.</li>
+          <li>Komt er een gedachte op? Leg hem in gedachten op een blaadje.</li>
+          <li>Kijk hoe het blaadje wegdrijft, in zijn eigen tempo.</li>
+          <li>Dwaal je af of zit je vast in een gedachte? Geen probleem. Merk het op en leg ook die gedachte op een blaadje.</li>
+        </ol>
+      </div>
+
+      <div class="js-only">
+        <div class="river" id="river" aria-hidden="true">
+          <div class="ripples">
+            <svg viewBox="0 0 800 160" preserveAspectRatio="none">
+              <path d="M0 30 q25 -8 50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0 t50 0"/>
+              <path d="M0 80 q30 -9 60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0 t60 0" opacity=".7"/>
+              <path d="M0 130 q20 -7 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0"/>
+            </svg>
+          </div>
+        </div>
+        <form class="river-form" id="river-form" autocomplete="off">
+          <input id="thought" aria-label="Gedachte" maxlength="60" placeholder="Typ een gedachte…" enterkeyhint="send">
+          <button class="btn" type="submit">Laat drijven</button>
+        </form>
+        <div class="river-row">
+          <button class="btn btn-ghost btn-small" type="button" id="river-empty">Leeg blaadje</button>
+          <p class="river-count" id="river-count" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <p class="small">Geen woorden voor wat je voelt? Tik op <em>Leeg blaadje</em> en stel je voor dat de gedachte erop ligt. Wat je typt, wordt nergens bewaard of verstuurd.</p>
+      <p class="small">Dit is een oefening uit ACT (Acceptance and Commitment Therapy). Je leert dat een gedachte gewoon een gedachte is: je kunt hem opmerken en laten gaan, zonder erin mee te gaan.</p>
+      <p class="sources">Bronnen: <a href="https://pubmed.ncbi.nlm.nih.gov/25547522/">A-Tjak e.a. (2015), meta-analyse ACT</a> · <a href="https://www.goodtherapy.org/blog/leaves-on-a-steam-cognitive-defusion-exercise/">uitleg van de oefening (GoodTherapy)</a></p>
+    </section>
+
+    <!-- ==== [HTML] GROUNDING ==== -->
+    <section id="grounding" role="tabpanel" aria-labelledby="tab-grounding">
+      <h2>Aarden: 5-4-3-2-1</h2>
+      <p class="g-hint">Haal je aandacht weg van je ademhaling en breng hem naar de wereld om je heen. Noem de dingen hardop of in je hoofd.</p>
+
+      <div class="no-js-only card">
+        <ol>
+          <li><strong>5 dingen die je ziet</strong>: een lamp, je schoenen, een kleur op de muur.</li>
+          <li><strong>4 dingen die je voelt</strong>: je voeten op de vloer, je kleding, de stoel.</li>
+          <li><strong>3 dingen die je hoort</strong>: verkeer, een ventilator, vogels.</li>
+          <li><strong>2 dingen die je ruikt</strong>: of denk aan twee geuren die je fijn vindt.</li>
+          <li><strong>1 ding dat je proeft</strong>: of neem een slokje water.</li>
+        </ol>
+      </div>
+
+      <div class="js-only card" id="g-app"></div>
+    </section>
+
+    <!-- ==== [HTML] THERMOMETER ==== -->
+    <section id="thermo" role="tabpanel" aria-labelledby="tab-thermo">
+      <h2>Emotiethermometer</h2>
+      <div class="no-js-only card">
+        <p>Hoe voelt je lichaam zich, en hoe gaat het in je hoofd? Geef beide een cijfer van 0 (neutraal) tot 10 (heel zwaar). Voor het bijhouden van je momenten is JavaScript nodig.</p>
+      </div>
+
+      <div class="js-only">
+        <p class="t-last" id="t-last"></p>
+        <div class="t-banner" id="t-storage" hidden>Deze browser staat opslaan niet toe (bijvoorbeeld in een privévenster). Je kunt de thermometer gebruiken, maar je momenten worden niet bewaard.</div>
+
+        <div class="segmented t-sub" role="radiogroup" aria-label="Onderdeel" id="t-sub">
+          <button type="button" role="radio" data-p="nu" aria-checked="true">Nu</button>
+          <button type="button" role="radio" data-p="verloop" aria-checked="false">Verloop</button>
+        </div>
+
+        <!-- Thermometer: current reading (Nu) -->
+        <div id="t-nu">
+          <div id="t-meters"></div>
+
+          <div class="card t-save">
+            <label for="t-note">Wil je er iets bij schrijven? <span class="muted" style="font-weight:400">(niet verplicht)</span></label>
+            <textarea id="t-note" placeholder="Wat speelt er? Wat heb je vandaag gedaan, geslapen, gegeten…"></textarea>
+            <div class="save-row">
+              <div class="when">
+                <span id="t-when-text">Tijdstip: nu</span>
+                <input type="datetime-local" id="t-when-input" hidden aria-label="Tijdstip van dit moment">
+                <button class="link" id="t-when-toggle" type="button">ander tijdstip</button>
+              </div>
+              <button class="btn" id="t-save" type="button">Moment opslaan</button>
+            </div>
+          </div>
+
+          <details class="tips">
+            <summary>Tips voor gebruik</summary>
+            <ul>
+              <li>Sleep het kwik omhoog of omlaag, tik op + en −, of gebruik de pijltjestoetsen. 0 is neutraal of top, 10 is heel zwaar.</li>
+              <li>Lichaam en hoofd kunnen heel verschillend zijn: moe maar opgewekt, of fit maar onrustig. Juist dat verschil is interessant.</li>
+              <li>Kies vaste momenten, bijvoorbeeld 's ochtends en 's avonds. Na een week of twee zie je in <em>Verloop</em> patronen.</li>
+              <li>Tik op <em>Aanpassen</em> bij een meter om de naam, de teksten en de woorden te veranderen.</li>
+              <li>Er is geen goed of fout. Het gaat erom dat je jezelf beter leert kennen.</li>
+            </ul>
+          </details>
+        </div>
+
+        <!-- Thermometer: history (Verloop) -->
+        <div id="t-verloop" hidden>
+          <div class="card">
+            <div class="chart-head">
+              <div class="range" id="t-range">
+                <button type="button" data-range="7" aria-pressed="true">7 dagen</button>
+                <button type="button" data-range="30" aria-pressed="false">30 dagen</button>
+                <button type="button" data-range="all" aria-pressed="false">Alles</button>
+              </div>
+              <div class="legend" id="t-legend"></div>
+            </div>
+            <div id="chart"></div>
+          </div>
+          <div class="stats" id="t-stats"></div>
+          <div class="insights" id="t-insights"></div>
+          <div class="entries" id="t-entries"></div>
+          <div class="t-data" id="t-data"></div>
+        </div>
+      </div>
+
+      <p class="small" style="margin-top:20px">Je gegevens blijven op dit apparaat, in deze browser. Er wordt niets verstuurd.</p>
+    </section>
+
+
+  </main>
+</div>
+
+<nav class="tabs" aria-label="Onderdelen">
+  <div class="inner" role="tablist">
+    <a href="#ademen" id="tab-ademen" role="tab" aria-controls="ademen" aria-selected="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></svg>
+      Ademen
+    </a>
+    <a href="#spieren" id="tab-spieren" role="tab" aria-controls="spieren" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.5" r="2"/><path d="M5 9l7 1.5L19 9M12 10.5V15M12 15l-3.5 6M12 15l3.5 6"/></svg>
+      Spieren
+    </a>
+    <a href="#rivier" id="tab-rivier" role="tab" aria-controls="rivier" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19C5 10 11 5 20 4c-1 9-6 15-15 15z"/><path d="M5 19l8-8"/></svg>
+      Rivier
+    </a>
+    <a href="#grounding" id="tab-grounding" role="tab" aria-controls="grounding" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+      Aarden
+    </a>
+    <a href="#thermo" id="tab-thermo" role="tab" aria-controls="thermo" aria-selected="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4a2 2 0 0 1 4 0v10.3a4 4 0 1 1-4 0z"/><path d="M12 9v7"/></svg>
+      Thermometer
+    </a>
+  </div>
+</nav>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- ==== [HTML] DISCLAIMER: shown every time the app opens ==== -->
+<dialog class="disclaimer" id="disclaimer" aria-labelledby="disclaimer-title">
+  <h2 id="disclaimer-title">Goed om te weten</h2>
+  <p>Deze app is <strong>geen medisch hulpmiddel</strong>. De oefeningen en de thermometer kunnen je helpen om rustiger te worden en jezelf beter te leren kennen. Ze vervangen geen arts, psycholoog of behandeling.</p>
+  <p>Twijfel je over je klachten, of blijven ze terugkomen? Neem dan contact op met je huisarts.</p>
+  <p class="urgent">Pijn op de borst, flauwvallen of benauwdheid die niet overgaat? <strong>Bel 112.</strong></p>
+  <form method="dialog"><button class="btn" type="submit" id="disclaimer-ok">Ik begrijp het</button></form>
+</dialog>
+
+<script type="module">
+// localStorage can still throw (e.g. blocked site data), so every access is guarded
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+const $ = id => document.getElementById(id);
+const $$ = sel => [...document.querySelectorAll(sel)];
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// Arrow-key navigation within a group of buttons (tabs and radio groups)
+function arrowStep(e) {
+  return e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+}
+
+/* Keep the screen awake during an exercise */
+let wakeLock = null;
+async function requestWakeLock() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+}
+function releaseWakeLock() {
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+}
+
+/* ==== [JS] BREATHE ==== */
+const RHYTHMS = {
+  '3-5':   [['in', 3], ['out', 5]],
+  '4-6':   [['in', 4], ['out', 6]],
+  '4-7-8': [['in', 4], ['hold', 7], ['out', 8]]
+};
+const LABEL = { in: 'Adem in', hold: 'Houd vast', out: 'Adem uit' };
+const SUB = { in: 'Rustig door je neus', hold: 'Ontspan je schouders', out: 'Langzaam, door je mond' };
+const MIN = 0.55;
+const ENCOURAGE_AFTER = 120;
+
+const SHORT = { in: 'in', hold: 'vast', out: 'uit' };
+const FOLLOW = { cirkel: 'Tik op Start en volg de cirkel.', golf: 'Tik op Start en volg het bolletje.' };
+// Wave geometry (SVG viewBox 320 x 170)
+// WDOT: fixed x position of the dot; WSPEED: how fast the wave scrolls (units per second)
+const WDOT = 110, WSPEED = 22, WTOP = 24, WBOT = 124, WLABEL = 156;
+
+const orb = $('orb');
+const orbView = $('orb-view');
+const waveView = $('wave-view');
+const waveTrack = $('wave-track');
+const waveDone = $('wave-done');
+const waveMove = $('wave-move');
+const waveMoveDone = $('wave-move-done');
+const waveLabels = $('wave-labels');
+const waveDot = $('wave-dot');
+const phaseEls = $$('.js-phase');
+const countEls = $$('.js-count');
+const viewBtns = $$('#views [role=radio]');
+const rhythmBtns = $$('#rhythms [role=radio]');
+const subEl = $('phase-sub');
+const roundsEl = $('rounds');
+const encourageEl = $('encourage');
+const startBtn = $('start');
+const soundBtn = $('sound');
+const rhythmInfo = $('rhythm-info');
+
+let rhythm = RHYTHMS[store.get('ra-rhythm')] ? store.get('ra-rhythm') : '4-6';
+let view = store.get('ra-view') === 'golf' ? 'golf' : 'cirkel';
+let soundOn = store.get('ra-sound') === '1';
+
+let running = false, startedAt = 0, elapsed = 0, raf = 0;
+let lastKey = '';
+
+const setText = (els, text) => els.forEach(e => { e.textContent = text; });
+const cycleLength = () => RHYTHMS[rhythm].reduce((sum, [, dur]) => sum + dur, 0);
+const cycleWidth = () => cycleLength() * WSPEED;
+const waveY = s => WBOT - (s - MIN) / (1 - MIN) * (WBOT - WTOP);
+
+// Where in the breathing cycle are we at time t (seconds)?
+function sample(t) {
+  const phases = RHYTHMS[rhythm];
+  const total = cycleLength();
+  const cycle = Math.floor(t / total);
+  const inCycle = t - cycle * total;
+  let pos = inCycle, i = 0;
+  while (i < phases.length - 1 && pos >= phases[i][1]) { pos -= phases[i][1]; i++; }
+  const [name, dur] = phases[i];
+  const ease = 0.5 - 0.5 * Math.cos(Math.PI * Math.min(pos / dur, 1));
+  const s = name === 'in' ? MIN + (1 - MIN) * ease : name === 'out' ? 1 - (1 - MIN) * ease : 1;
+  return { cycle, i, name, dur, pos, s, frac: inCycle / total };
+}
+
+// Draws enough repetitions of the breathing cycle to fill the view while the wave scrolls
+// one cycle to the left. Because the wave repeats, the jump back is invisible.
+function buildWave() {
+  const total = cycleLength();
+  const w = cycleWidth();
+  const first = -Math.ceil(WDOT / w);
+  const last = Math.ceil((320 - WDOT) / w) + 1;
+  const steps = Math.round(total * 12);
+  let d = '';
+  waveLabels.textContent = '';
+  for (let c = first; c < last; c++) {
+    const x0 = WDOT + c * w;
+    for (let k = 0; k <= steps; k++) {
+      const f = k / steps;
+      const smp = sample(Math.min(f * total, total - 1e-6));
+      d += `${d ? 'L' : 'M'}${(x0 + f * w).toFixed(1)} ${waveY(k === steps ? MIN : smp.s).toFixed(1)}`;
+    }
+    let acc = 0;
+    for (const [name, dur] of RHYTHMS[rhythm]) {
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', (x0 + (acc + dur / 2) * WSPEED).toFixed(1));
+      label.setAttribute('y', WLABEL);
+      label.textContent = `${SHORT[name]} · ${dur}`;
+      waveLabels.append(label);
+      acc += dur;
+    }
+  }
+  waveTrack.setAttribute('d', d);
+  waveDone.setAttribute('d', d);
+}
+
+function show(s, frac) {
+  orb.style.setProperty('--s', s.toFixed(4));
+  const shift = `translate(${(-frac * cycleWidth()).toFixed(2)} 0)`;
+  waveMove.setAttribute('transform', shift);
+  waveMoveDone.setAttribute('transform', shift);
+  waveDot.setAttribute('cy', waveY(s).toFixed(1));
+}
+
+function render(t) {
+  const smp = sample(t);
+  show(smp.s, smp.frac);
+  if (soundOn) setWave((smp.s - MIN) / (1 - MIN));
+  setText(countEls, Math.max(1, Math.ceil(smp.dur - smp.pos)));
+
+  const key = `${smp.cycle}:${smp.i}`;
+  if (key !== lastKey) {
+    lastKey = key;
+    // Every wave is slightly different: that sounds more natural
+    if (smp.name === 'in') waveStrength = 0.8 + Math.random() * 0.2;
+    setText(phaseEls, LABEL[smp.name]);
+    subEl.textContent = SUB[smp.name];
+    roundsEl.textContent = `Ronde ${smp.cycle + 1}`;
+  }
+  if (t >= ENCOURAGE_AFTER) encourageEl.hidden = false;
+}
+
+function frame(now) {
+  if (!running) return;
+  render(elapsed + (now - startedAt) / 1000);
+  raf = requestAnimationFrame(frame);
+}
+
+function start() {
+  if (running) return;
+  running = true;
+  startedAt = performance.now();
+  lastKey = '';
+  startBtn.textContent = 'Pauze';
+  if (soundOn) ensureAudio();
+  requestWakeLock();
+  raf = requestAnimationFrame(frame);
+}
+
+function pause() {
+  if (!running) return;
+  running = false;
+  cancelAnimationFrame(raf);
+  elapsed += (performance.now() - startedAt) / 1000;
+  setNoise(0, 0.2);
+  startBtn.textContent = 'Verder';
+  setText(phaseEls, 'Pauze');
+  setText(countEls, '');
+  subEl.textContent = 'Tik op Verder om door te gaan.';
+  releaseWakeLock();
+}
+
+function reset() {
+  pause();
+  elapsed = 0;
+  lastKey = '';
+  show(MIN, 0);
+  startBtn.textContent = 'Start';
+  setText(phaseEls, 'Klaar?');
+  setText(countEls, '');
+  subEl.textContent = FOLLOW[view];
+  roundsEl.textContent = '';
+  encourageEl.hidden = true;
+}
+
+startBtn.addEventListener('click', () => running ? pause() : start());
+
+/* Radio button groups (view and rhythm) */
+function radioGroup(btns, attr, current, onChoose) {
+  const mark = value => {
+    for (const b of btns) {
+      const on = b.getAttribute(attr) === value;
+      b.setAttribute('aria-checked', on);
+      b.tabIndex = on ? 0 : -1;
+    }
+  };
+  btns.forEach((b, idx) => {
+    b.addEventListener('click', () => {
+      const value = b.getAttribute(attr);
+      mark(value);
+      onChoose(value);
+    });
+    b.addEventListener('keydown', e => {
+      const d = arrowStep(e);
+      if (!d) return;
+      e.preventDefault();
+      const next = btns[(idx + d + btns.length) % btns.length];
+      next.focus();
+      next.click();
+    });
+  });
+  mark(current);
+}
+
+const RHYTHM_INFO = {
+  '3-5': '<strong>Makkelijker.</strong> Goed om mee te beginnen als je erg benauwd bent. Gaat het beter? Stap over op 4 – 6.',
+  '4-6': '<strong>Aanbevolen bij hyperventilatie.</strong> 6 ademhalingen per minuut: je hartslag en ademhaling komen in de pas.',
+  '4-7-8': '<strong>Om te ontspannen of in te slapen.</strong> Voelt het vasthouden benauwd? Kies dan 4 – 6.'
+};
+const showRhythmInfo = () => {
+  rhythmInfo.innerHTML = `${RHYTHM_INFO[rhythm]} <a href="#ritme-uitleg" id="rhythm-more">Meer uitleg</a>`;
+};
+rhythmInfo.addEventListener('click', e => {
+  if (e.target.id !== 'rhythm-more') return;
+  e.preventDefault();
+  $('ritme-uitleg').scrollIntoView({ behavior: 'smooth' });
+});
+
+radioGroup(rhythmBtns, 'data-r', rhythm, value => {
+  rhythm = value;
+  showRhythmInfo();
+  store.set('ra-rhythm', rhythm);
+  buildWave();
+  const wasRunning = running;
+  reset();
+  if (wasRunning) start();
+});
+
+function showView() {
+  orbView.hidden = view !== 'cirkel';
+  waveView.hidden = view !== 'golf';
+  if (!running && !elapsed) subEl.textContent = FOLLOW[view];
+}
+radioGroup(viewBtns, 'data-v', view, value => {
+  view = value;
+  store.set('ra-view', view);
+  showView();
+});
+
+/* Sound: surf that rolls in and out with the breath (generated in the page itself).
+   Pink noise goes through a low-pass filter: on the in-breath the filter opens and the wave
+   gets fuller and brighter, on the out-breath it falls back to a soft, dull rustle. */
+const WAVE_GAIN_MIN = 0.03, WAVE_GAIN_MAX = 0.32;
+const WAVE_FREQ_MIN = 260, WAVE_FREQ_MAX = 2200;
+let audio = null, noiseGain = null, waveFilter = null, previewTimer = 0, waveStrength = 1;
+
+function ensureAudio() {
+  // iPhone: keep playing sound when silent mode is on (Safari-only API)
+  if ('audioSession' in navigator) navigator.audioSession.type = 'playback';
+  audio ??= new AudioContext();
+  if (audio.state !== 'running') audio.resume();
+  if (noiseGain) return;
+  // Pink noise (Paul Kellet's method): softer and more natural than white noise
+  const len = audio.sampleRate * 6;
+  const buf = audio.createBuffer(1, len, audio.sampleRate);
+  const data = buf.getChannelData(0);
+  let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    b0 = 0.99886 * b0 + w * 0.0555179;
+    b1 = 0.99332 * b1 + w * 0.0750759;
+    b2 = 0.96900 * b2 + w * 0.1538520;
+    b3 = 0.86650 * b3 + w * 0.3104856;
+    b4 = 0.55000 * b4 + w * 0.5329522;
+    b5 = -0.7616 * b5 - w * 0.0168980;
+    data[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+    b6 = w * 0.115926;
+  }
+  const src = new AudioBufferSourceNode(audio, { buffer: buf, loop: true });
+  waveFilter = new BiquadFilterNode(audio, { type: 'lowpass', Q: 0.6, frequency: WAVE_FREQ_MIN });
+  noiseGain = new GainNode(audio, { gain: 0 });
+  src.connect(waveFilter).connect(noiseGain).connect(audio.destination);
+  src.start();
+}
+function setNoise(level, smooth = 0.05) {
+  if (!noiseGain) return;
+  const t = audio.currentTime;
+  noiseGain.gain.cancelScheduledValues(t);
+  noiseGain.gain.setTargetAtTime(level, t, smooth);
+}
+// l = 0 (wave fully retreated) to 1 (wave at its peak)
+function setWave(l, smooth = 0.05) {
+  if (!noiseGain) return;
+  l = Math.max(0, Math.min(1, l * waveStrength));
+  const t = audio.currentTime;
+  setNoise(WAVE_GAIN_MIN + (WAVE_GAIN_MAX - WAVE_GAIN_MIN) * l ** 1.4, smooth);
+  waveFilter.frequency.cancelScheduledValues(t);
+  waveFilter.frequency.setTargetAtTime(WAVE_FREQ_MIN * (WAVE_FREQ_MAX / WAVE_FREQ_MIN) ** l, t, smooth);
+}
+
+const showToggles = () => soundBtn.setAttribute('aria-pressed', soundOn);
+soundBtn.addEventListener('click', () => {
+  soundOn = !soundOn;
+  store.set('ra-sound', soundOn ? '1' : '0');
+  clearTimeout(previewTimer);
+  if (soundOn) {
+    ensureAudio();
+    if (!running) {
+      // Short preview so you can hear what it sounds like
+      setWave(1, 0.6);
+      previewTimer = setTimeout(() => { if (!running) setWave(0, 0.8); }, 1800);
+      setTimeout(() => { if (!running) setNoise(0, 0.5); }, 3600);
+    }
+  } else {
+    setNoise(0, 0.2);
+  }
+  showToggles();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (running || pmr.running) requestWakeLock();
+  // iPhone may interrupt audio (e.g. after a notification or screen lock)
+  if (running && soundOn && audio && audio.state !== 'running') audio.resume();
+});
+
+showToggles();
+showRhythmInfo();
+buildWave();
+showView();
+reset();
+
+/* ==== [JS] GROUNDING ==== */
+const STEPS = [
+  { n: 5, title: 'dingen die je ziet', hint: 'Kijk rustig om je heen. Een lamp, je schoenen, een kleur op de muur.' },
+  { n: 4, title: 'dingen die je voelt', hint: 'Je voeten op de vloer, je kleding op je huid, de stoel onder je.' },
+  { n: 3, title: 'dingen die je hoort', hint: 'Luister goed. Verkeer, een ventilator, vogels, je eigen adem.' },
+  { n: 2, title: 'dingen die je ruikt', hint: 'Ruik je niets? Denk dan aan twee geuren die je fijn vindt.' },
+  { n: 1, title: 'ding dat je proeft', hint: 'Wat proef je nu? Of neem een slokje water.' }
+];
+const gApp = $('g-app');
+let gIndex = 0;
+
+function gButton(cls, text, onClick) {
+  const b = el('button', cls, text);
+  b.type = 'button';
+  b.addEventListener('click', onClick);
+  return b;
+}
+function gGoto(index) {
+  gIndex = index;
+  renderGrounding();
+  gApp.querySelector('.g-title')?.focus({ preventScroll: true });
+}
+
+function renderGrounding() {
+  gApp.textContent = '';
+  const prog = el('div', 'g-progress');
+  prog.setAttribute('aria-hidden', 'true');
+  STEPS.forEach((_, i) => prog.append(el('span', i < gIndex ? 'done' : null)));
+  gApp.append(prog);
+
+  if (gIndex >= STEPS.length) {
+    const title = el('div', 'g-title', 'Goed gedaan.');
+    title.tabIndex = -1;
+    const actions = el('div', 'g-actions');
+    actions.append(gButton('btn btn-ghost', 'Opnieuw', () => gGoto(0)));
+    gApp.append(title, el('p', 'g-hint', 'Merk op hoe je je nu voelt. Adem nog een paar keer rustig en lang uit.'), actions);
+    return;
+  }
+
+  const step = STEPS[gIndex];
+  const title = el('div', 'g-title', `Noem ${step.n} ${step.title}`);
+  title.tabIndex = -1;
+
+  const dots = el('div', 'g-dots');
+  for (let i = 1; i <= step.n; i++) {
+    const d = el('button', 'g-dot', String(i));
+    d.type = 'button';
+    d.setAttribute('aria-pressed', 'false');
+    d.setAttribute('aria-label', `Nummer ${i} afvinken`);
+    d.addEventListener('click', () => d.setAttribute('aria-pressed', d.getAttribute('aria-pressed') !== 'true'));
+    dots.append(d);
+  }
+
+  const act = el('div', 'g-actions');
+  if (gIndex > 0) act.append(gButton('btn btn-ghost', 'Terug', () => gGoto(gIndex - 1)));
+  act.append(gButton('btn', gIndex === STEPS.length - 1 ? 'Klaar' : 'Volgende', () => gGoto(gIndex + 1)));
+
+  gApp.append(
+    el('p', 'g-step', `Stap ${gIndex + 1} van ${STEPS.length}`),
+    el('div', 'g-num', String(step.n)),
+    title,
+    el('p', 'g-hint', step.hint),
+    dots,
+    act
+  );
+}
+renderGrounding();
+
+/* ==== [JS] MUSCLES ==== */
+const PMR_GROUPS = [
+  { name: 'Handen', tense: 'Maak twee vuisten en knijp stevig.', relax: 'Open je handen. Voel hoe de spanning wegvloeit.' },
+  { name: 'Armen', tense: 'Buig je armen en span je bovenarmen aan.', relax: 'Laat je armen zwaar naar beneden zakken.' },
+  { name: 'Schouders', tense: 'Trek je schouders op naar je oren.', relax: 'Laat ze zakken. Misschien wel verder dan je dacht.' },
+  { name: 'Gezicht', tense: 'Knijp je ogen dicht, frons en klem je kaken op elkaar.', relax: 'Laat je gezicht glad worden. Kaak los, tong los.' },
+  { name: 'Buik', tense: 'Span je buikspieren aan, alsof je je schrap zet.', relax: 'Laat je buik zacht worden.' },
+  { name: 'Benen', tense: 'Duw je hielen in de grond en span je bovenbenen aan.', relax: 'Laat je benen zwaar worden.' },
+  { name: 'Voeten', tense: 'Krul je tenen naar beneden.', relax: 'Laat je tenen los. Voel je voeten op de vloer.' }
+];
+const PMR_PHASES = [
+  { key: 'prep', dur: 4, label: 'Maak je klaar' },
+  { key: 'tense', dur: 5, label: 'Aanspannen… blijf doorademen' },
+  { key: 'relax', dur: 15, label: 'Loslaten' }
+];
+
+const pmrEls = Object.fromEntries(
+  ['progress', 'step', 'title', 'phase', 'text', 'bar', 'count', 'prev', 'start', 'next'].map(k => [k, $(`pmr-${k}`)])
+);
+const pmr = { group: -1, phase: 0, acc: 0, startedAt: 0, running: false, raf: 0 };
+
+pmrEls.progress.append(...PMR_GROUPS.map(() => el('span')));
+
+function pmrRender() {
+  const g = pmr.group;
+  const finished = g >= PMR_GROUPS.length;
+  [...pmrEls.progress.children].forEach((s, i) => { s.className = i < g || finished ? 'done' : ''; });
+  pmrEls.prev.hidden = pmrEls.next.hidden = g < 0 || finished;
+
+  if (g < 0) {
+    pmrEls.step.textContent = `${PMR_GROUPS.length} spiergroepen · ongeveer 3 minuten`;
+    pmrEls.title.textContent = 'Klaar om te beginnen?';
+    pmrEls.phase.textContent = '';
+    pmrEls.text.textContent = 'Ga lekker zitten of liggen. Je mag je ogen dichtdoen als je dat fijn vindt.';
+    pmrEls.count.textContent = '';
+    pmrEls.bar.style.width = '0';
+    pmrEls.start.textContent = 'Start';
+    return;
+  }
+  if (finished) {
+    pmrEls.step.textContent = '';
+    pmrEls.title.textContent = 'Goed gedaan.';
+    pmrEls.phase.textContent = '';
+    pmrEls.text.textContent = 'Blijf nog even zitten. Merk op hoe je lichaam nu voelt: zwaarder, warmer, rustiger?';
+    pmrEls.count.textContent = '';
+    pmrEls.bar.style.width = '100%';
+    pmrEls.bar.className = '';
+    pmrEls.start.textContent = 'Opnieuw';
+    return;
+  }
+
+  const grp = PMR_GROUPS[g], ph = PMR_PHASES[pmr.phase];
+  const tense = ph.key === 'tense';
+  const t = pmr.acc + (pmr.running ? (performance.now() - pmr.startedAt) / 1000 : 0);
+  pmrEls.step.textContent = `Stap ${g + 1} van ${PMR_GROUPS.length}`;
+  pmrEls.title.textContent = grp.name;
+  pmrEls.phase.textContent = pmr.running ? ph.label : 'Pauze';
+  pmrEls.phase.classList.toggle('tense', tense);
+  pmrEls.text.textContent = ph.key === 'relax' ? grp.relax : grp.tense;
+  pmrEls.bar.className = tense ? 'tense' : '';
+  pmrEls.bar.style.width = `${Math.min(100, t / ph.dur * 100).toFixed(1)}%`;
+  pmrEls.count.textContent = Math.max(1, Math.ceil(ph.dur - t));
+  pmrEls.start.textContent = pmr.running ? 'Pauze' : 'Verder';
+}
+
+function pmrFrame(now) {
+  if (!pmr.running) return;
+  const t = pmr.acc + (now - pmr.startedAt) / 1000;
+  if (t >= PMR_PHASES[pmr.phase].dur) {
+    pmr.acc = 0;
+    pmr.startedAt = now;
+    pmr.phase++;
+    if (pmr.phase >= PMR_PHASES.length) { pmr.phase = 0; pmr.group++; }
+    if (pmr.group >= PMR_GROUPS.length) { pmrStop(); pmrRender(); return; }
+  }
+  pmrRender();
+  pmr.raf = requestAnimationFrame(pmrFrame);
+}
+
+function pmrPlay() {
+  if (pmr.running) return;
+  pmr.running = true;
+  pmr.startedAt = performance.now();
+  requestWakeLock();
+  pmr.raf = requestAnimationFrame(pmrFrame);
+}
+function pmrStop() {
+  if (!pmr.running) return;
+  pmr.running = false;
+  cancelAnimationFrame(pmr.raf);
+  pmr.acc += (performance.now() - pmr.startedAt) / 1000;
+  releaseWakeLock();
+}
+function pmrPause() { if (pmr.running) { pmrStop(); pmrRender(); } }
+function pmrGoto(group) {
+  pmr.group = Math.max(0, Math.min(group, PMR_GROUPS.length - 1));
+  pmr.phase = 0;
+  pmr.acc = 0;
+  pmr.startedAt = performance.now();
+  pmrRender();
+}
+
+pmrEls.start.addEventListener('click', () => {
+  if (pmr.running) { pmrPause(); return; }
+  if (pmr.group < 0 || pmr.group >= PMR_GROUPS.length) pmrGoto(0);
+  pmrPlay();
+  pmrRender();
+});
+pmrEls.prev.addEventListener('click', () => pmrGoto(pmr.group - 1));
+pmrEls.next.addEventListener('click', () => pmrGoto(pmr.group + 1));
+pmrRender();
+
+/* ==== [JS] RIVER ==== */
+const river = $('river');
+const riverInput = $('thought');
+const riverCount = $('river-count');
+const LEAF_COLORS = [['#b6de8f', '#7fbf5a'], ['#f3d27a', '#e0a93f'], ['#f1b27a', '#d9804a'], ['#c9e39a', '#99c46a']];
+const LEAF_DURATION = 16000;
+let leafCount = 0;
+
+function launchLeaf(text) {
+  const w = river.clientWidth, h = river.clientHeight;
+  const [c1, c2] = LEAF_COLORS[Math.floor(Math.random() * LEAF_COLORS.length)];
+  const leaf = el('div', 'leaf');
+  const bob = el('div', 'leaf-bob');
+  bob.style.animationDelay = `${(-Math.random() * 3).toFixed(2)}s`;
+  const body = el('div', 'leaf-body');
+  body.style.setProperty('--c1', c1);
+  body.style.setProperty('--c2', c2);
+  body.append(el('span', null, text));
+  bob.append(body);
+  leaf.append(bob);
+  river.append(leaf);
+
+  // Random path on the water, between the banks
+  const lh = leaf.offsetHeight, lw = leaf.offsetWidth;
+  const top = h * 0.2 + Math.random() * Math.max(0, h * 0.6 - lh);
+  const drift = (Math.random() - 0.5) * 30;
+  const anim = leaf.animate([
+    { transform: `translate(${-lw - 20}px, ${top}px)`, opacity: 0 },
+    { opacity: 1, offset: 0.08 },
+    { opacity: 1, offset: 0.8 },
+    { transform: `translate(${w + 20}px, ${top + drift}px)`, opacity: 0 }
+  ], { duration: LEAF_DURATION * (0.9 + Math.random() * 0.2), easing: 'linear', fill: 'forwards' });
+  anim.finished.then(() => leaf.remove());
+
+  leafCount++;
+  riverCount.textContent = leafCount === 1 ? '1 gedachte laten drijven' : `${leafCount} gedachten laten drijven`;
+}
+
+$('river-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const text = riverInput.value.trim();
+  if (!text) { riverInput.focus(); return; }
+  launchLeaf(text);
+  riverInput.value = '';
+});
+$('river-empty').addEventListener('click', () => launchLeaf(''));
+
+/* ==== [JS] TABS (bottom navigation) ==== */
+const tabs = $$('[role=tab]');
+const panels = tabs.map(t => $(t.getAttribute('aria-controls')));
+
+function selectTab(idx, focus) {
+  tabs.forEach((t, i) => {
+    const on = i === idx;
+    t.setAttribute('aria-selected', on);
+    t.tabIndex = on ? 0 : -1;
+    panels[i].hidden = !on;
+  });
+  if (focus) tabs[idx].focus();
+  if (panels[idx].id !== 'ademen') pause();
+  if (panels[idx].id !== 'spieren') pmrPause();
+  window.scrollTo(0, 0);
+  // Tell the panel it is visible (the thermometer then draws its chart)
+  panels[idx].dispatchEvent(new CustomEvent('tabshown'));
+}
+
+tabs.forEach((t, idx) => {
+  t.addEventListener('click', e => { e.preventDefault(); selectTab(idx); });
+  t.addEventListener('keydown', e => {
+    const d = arrowStep(e);
+    if (!d) return;
+    e.preventDefault();
+    selectTab((idx + d + tabs.length) % tabs.length, true);
+  });
+});
+
+selectTab(0);
+
+/* ==== [JS] DISCLAIMER: on every start ==== */
+$('disclaimer').showModal();
+$('disclaimer-ok').focus();
+
+/* ==== [JS] OFFLINE: service worker, only when served over https (not as a local file) ==== */
+if (location.protocol === 'https:' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+
+<script type="module">
+/* ==== [JS] THERMOMETER ==== */
+
+/* ---- Thermometer: settings & storage ---- */
+// Changing this key makes previously saved moments invisible.
+const KEY = 'emotiethermometer.v1';
+const IDS = ['body', 'mind'];
+const DEFAULT_METERS = {
+  body: { name: 'Lichaam', low: 'Neutraal, fit', high: 'Heel zwaar',
+    tags: ['Uitgerust', 'Moe', 'Energiek', 'Slecht geslapen', 'Pijn', 'Hoofdpijn', 'Gespannen', 'Ontspannen', 'Onrustig', 'Misselijk', 'Hongerig', 'Ziek'] },
+  mind: { name: 'Hoofd', low: 'Neutraal, rustig', high: 'Heel zwaar',
+    tags: ['Blij', 'Rustig', 'Dankbaar', 'Trots', 'Hoopvol', 'Verdrietig', 'Boos', 'Bang', 'Gestrest', 'Onzeker', 'Eenzaam', 'Somber', 'Prikkelbaar', 'Overprikkeld'] }
+};
+// 0 = neutral / great, 10 = very heavy
+const WORDS = ['Neutraal', 'Prima', 'Prima', 'Beetje zwaar', 'Beetje zwaar', 'Best zwaar', 'Zwaar', 'Zwaar', 'Heel zwaar', 'Heel zwaar', 'Extreem zwaar'];
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const clamp = v => Math.max(0, Math.min(10, Math.round(v)));
+const isVal = v => typeof v === 'number' && isFinite(v) && v >= 0 && v <= 10;
+const cleanTags = arr => [...new Set(arr.filter(t => typeof t === 'string' && t.trim()).map(t => t.trim()))];
+
+function freshState() {
+  return { settings: { meters: structuredClone(DEFAULT_METERS) }, draft: { body: 0, mind: 0 }, entries: [] };
+}
+function normEntry(e) {
+  if (!e || typeof e !== 'object') return null;
+  const t = new Date(e.t);
+  if (isNaN(t)) return null;
+  const out = { id: typeof e.id === 'string' ? e.id : uid(), t: t.toISOString(),
+    note: typeof e.note === 'string' ? e.note : '', tags: { body: [], mind: [] } };
+  for (const id of IDS) {
+    const v = Number(e[id]);
+    if (!isVal(v)) return null;
+    out[id] = clamp(v);
+    const tg = e.tags && e.tags[id];
+    out.tags[id] = Array.isArray(tg) ? tg.filter(x => typeof x === 'string' && x.trim()).map(x => x.trim()) : [];
+  }
+  return out;
+}
+function normalize(d) {
+  const s = freshState();
+  if (!d || typeof d !== 'object') return s;
+  if (d.settings && typeof d.settings === 'object') {
+    for (const id of IDS) {
+      const m = d.settings.meters && d.settings.meters[id];
+      if (!m) continue;
+      for (const k of ['name', 'low', 'high']) {
+        if (typeof m[k] === 'string') s.settings.meters[id][k] = m[k];
+      }
+      if (Array.isArray(m.tags)) s.settings.meters[id].tags = cleanTags(m.tags);
+    }
+  }
+  if (d.draft) for (const id of IDS) if (isVal(Number(d.draft[id]))) s.draft[id] = clamp(Number(d.draft[id]));
+  if (Array.isArray(d.entries)) s.entries = d.entries.map(normEntry).filter(Boolean);
+  sortEntries(s.entries);
+  return s;
+}
+function sortEntries(arr) { arr.sort((a, b) => a.t < b.t ? -1 : a.t > b.t ? 1 : 0); }
+
+let storageOk = true;
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? normalize(JSON.parse(raw)) : freshState();
+  } catch { storageOk = false; return freshState(); }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); }
+  catch { storageOk = false; }
+  $('#t-storage').hidden = storageOk;
+}
+
+let state = load();
+const selected = { body: new Set(), mind: new Set() };
+let editing = null;                        // which meter is open for editing
+
+/* ---- Thermometer: helpers ---- */
+const $ = s => document.querySelector(s);
+function h(tag, props = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const k in props) {
+    const v = props[k];
+    if (k === 'class') n.className = v;
+    else if (k === 'text') n.textContent = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (v === true) n.setAttribute(k, '');
+    else if (v !== false && v != null) n.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) if (c != null) n.append(c);
+  return n;
+}
+const SVGNS = 'http://www.w3.org/2000/svg';
+function s(tag, attrs = {}, parent) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  parent?.append(n);
+  return n;
+}
+const color = v => `hsl(${140 - v * 14} 72% 46%)`;   // green (0) → yellow → red (10)
+const fmt = (n, d = 1) => n.toLocaleString('nl-NL', { maximumFractionDigits: d, minimumFractionDigits: d });
+const DAY = 864e5;
+const startOfDay = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+const timeStr = d => d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+function dayLabel(d) {
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(d)) / DAY);
+  if (diff === 0) return 'Vandaag';
+  if (diff === 1) return 'Gisteren';
+  const opts = { weekday: 'long', day: 'numeric', month: 'long' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return cap(d.toLocaleDateString('nl-NL', opts));
+}
+function localInputValue(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = h('a', { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+// Button that asks for confirmation on the first tap
+function confirmButton(cls, label, confirmLabel, onConfirm, ms = 3000) {
+  const b = h('button', { class: cls, type: 'button', text: label });
+  let armed = 0;
+  b.addEventListener('click', () => {
+    if (!armed) {
+      const c = confirmLabel();
+      if (c == null) return;
+      b.textContent = c;
+      armed = setTimeout(() => { armed = 0; b.textContent = label; }, ms);
+      return;
+    }
+    clearTimeout(armed); armed = 0; b.textContent = label;
+    onConfirm();
+  });
+  return b;
+}
+
+/* ---- Thermometer: the SVG thermometer (drag, keys, animation) ---- */
+const Y0 = 236, Y10 = 36;                 // y position of 0 and 10
+const vy = v => Y0 - (Y0 - Y10) * v / 10;
+const thermos = {};                        // per meter: {svg, merc, shine, shown, anim}
+
+function buildThermo(id) {
+  const svg = s('svg', { viewBox: '0 0 104 300', class: 'thermo', role: 'slider', tabindex: '0',
+    'aria-valuemin': '0', 'aria-valuemax': '10', 'aria-orientation': 'vertical' });
+  s('path', { class: 'glass', d: 'M38 33 A17 17 0 0 1 72 33 L72 241.3 A30 30 0 1 1 38 241.3 Z' }, svg);
+  s('rect', { class: 'track', x: 46, y: 24, width: 18, height: 230, rx: 9 }, svg);
+  const bulb = s('circle', { cx: 55, cy: 266, r: 22 }, svg);
+  const merc = s('rect', { x: 46, width: 18, rx: 9 }, svg);
+  const shine = s('rect', { x: 50, width: 4, rx: 2, class: 'shine' }, svg);
+  s('circle', { cx: 48, cy: 258, r: 5, class: 'shine' }, svg);
+  for (let i = 0; i <= 10; i++) {
+    const major = i % 2 === 0;
+    s('line', { x1: 77, x2: major ? 88 : 83, y1: vy(i), y2: vy(i), class: 'tick' + (major ? ' major' : '') }, svg);
+    if (major) { const t = s('text', { x: 91, y: vy(i) + 4 }, svg); t.textContent = i; }
+  }
+  const th = { svg, merc, shine, bulb, shown: state.draft[id], anim: 0 };
+  thermos[id] = th;
+  drawThermo(id, state.draft[id]);
+
+  let dragging = false;
+  const fromEvent = e => {
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    return clamp((Y0 - p.y) / ((Y0 - Y10) / 10));
+  };
+  svg.addEventListener('pointerdown', e => {
+    dragging = true; svg.setPointerCapture(e.pointerId); svg.focus({ preventScroll: true });
+    setValue(id, fromEvent(e), false); e.preventDefault();
+  });
+  svg.addEventListener('pointermove', e => { if (dragging) setValue(id, fromEvent(e), true); });
+  const end = () => { dragging = false; };
+  svg.addEventListener('pointerup', end);
+  svg.addEventListener('pointercancel', end);
+  svg.addEventListener('keydown', e => {
+    const v = state.draft[id];
+    const map = { ArrowUp: v + 1, ArrowRight: v + 1, ArrowDown: v - 1, ArrowLeft: v - 1, PageUp: v + 2, PageDown: v - 2, Home: 0, End: 10 };
+    if (e.key in map) { e.preventDefault(); setValue(id, clamp(map[e.key]), false); }
+  });
+  return svg;
+}
+function drawThermo(id, v) {
+  const th = thermos[id], top = vy(v);
+  th.merc.setAttribute('y', top);
+  th.merc.setAttribute('height', 266 - top);
+  th.shine.setAttribute('y', top + 6);
+  th.shine.setAttribute('height', Math.max(0, 240 - top - 6));
+  const c = color(Math.round(v * 10) / 10);
+  th.merc.setAttribute('fill', c);
+  th.bulb.setAttribute('fill', c);
+  th.shown = v;
+}
+function animateThermo(id, target, instant) {
+  const th = thermos[id];
+  cancelAnimationFrame(th.anim);
+  const from = th.shown;
+  if (instant || from === target || matchMedia('(prefers-reduced-motion: reduce)').matches) { drawThermo(id, target); return; }
+  const t0 = performance.now(), dur = 260;
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    drawThermo(id, from + (target - from) * e);
+    if (k < 1) th.anim = requestAnimationFrame(step);
+  };
+  th.anim = requestAnimationFrame(step);
+}
+function setValue(id, v, instant) {
+  v = clamp(v);
+  const changed = state.draft[id] !== v;
+  state.draft[id] = v;
+  if (thermos[id] && thermos[id].svg.isConnected) animateThermo(id, v, instant);
+  updateReadout(id);
+  if (changed) save();
+}
+function updateReadout(id) {
+  const v = state.draft[id], card = document.querySelector(`.meter[data-meter="${id}"]`);
+  if (!card || !card.querySelector('.num')) return;
+  const num = card.querySelector('.num'); num.textContent = v; num.append(h('small', { text: '/10' }));
+  card.querySelector('.word').textContent = WORDS[v];
+  thermos[id].svg.setAttribute('aria-valuenow', v);
+  thermos[id].svg.setAttribute('aria-valuetext', `${v} van 10, ${WORDS[v].toLowerCase()}`);
+}
+
+/* ---- Thermometer: Nu (meter cards, words, saving) ---- */
+const PENCIL = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></svg>';
+
+function renderMeters() {
+  const wrap = $('#t-meters');
+  wrap.textContent = '';
+  for (const id of IDS) {
+    if (editing === id) { wrap.append(meterEditor(id)); continue; }
+    wrap.append(meterCard(id));
+    updateReadout(id);
+  }
+}
+function meterCard(id) {
+  const m = state.settings.meters[id];
+  const svg = buildThermo(id);
+  svg.setAttribute('aria-label', `${m.name}: sleep of gebruik de pijltjestoetsen`);
+  const chips = h('div', { class: 'chips' });
+  renderChips(id, chips);
+  const edit = h('button', { class: 'edit-btn', type: 'button', 'aria-label': `${m.name} aanpassen`, onclick: () => openEditor(id) });
+  edit.innerHTML = PENCIL + ' Aanpassen';
+  const card = h('article', { class: 'card meter', 'data-meter': id },
+    h('div', { class: 'meter-head' }, h('h3', { text: m.name }), edit),
+    h('div', { class: 'meter-main' },
+      h('div', { class: 'thermo-col' },
+        h('div', { class: 'end-label', text: m.high }), svg, h('div', { class: 'end-label', text: m.low })),
+      h('div', { class: 'side' },
+        h('div', { class: 'readout' },
+          h('div', { class: 'num' }),
+          h('div', { style: 'flex:1;min-width:5em' }, h('div', { class: 'word' })),
+          h('div', { class: 'steppers' },
+            h('button', { class: 'stepper', type: 'button', 'aria-label': `${m.name} lager`, text: '−', onclick: () => setValue(id, state.draft[id] - 1) }),
+            h('button', { class: 'stepper', type: 'button', 'aria-label': `${m.name} hoger`, text: '+', onclick: () => setValue(id, state.draft[id] + 1) }))),
+        h('div', {}, h('div', { class: 'chips-label', text: 'Wat past erbij?' }), chips)))
+  );
+  return card;
+}
+function renderChips(id, box) {
+  box.textContent = '';
+  for (const tag of state.settings.meters[id].tags) {
+    const on = selected[id].has(tag);
+    box.append(h('button', { class: 'chip', type: 'button', 'aria-pressed': String(on), text: tag, onclick: e => {
+      const b = e.currentTarget, now = !selected[id].has(tag);
+      now ? selected[id].add(tag) : selected[id].delete(tag);
+      b.setAttribute('aria-pressed', String(now));
+    } }));
+  }
+  const add = h('button', { class: 'chip add', type: 'button', text: '+ eigen woord', onclick: () => {
+    askWord(add, v => {
+      const list = state.settings.meters[id].tags;
+      const existing = list.find(t => t.toLowerCase() === v.toLowerCase());
+      if (!existing) list.push(v);
+      selected[id].add(existing || v);
+      save();
+    }, () => { renderChips(id, box); const a = box.querySelector('.chip.add'); if (a) a.focus(); });
+  } });
+  box.append(add);
+}
+// Replaces a button with an input field for a single word
+function askWord(btn, onWord, after) {
+  const inp = h('input', { class: 'chip-input', type: 'text', maxlength: '30', 'aria-label': 'Nieuw woord', placeholder: 'Typ en druk Enter', enterkeyhint: 'done' });
+  const done = keep => {
+    const v = inp.value.trim();
+    if (keep && v) onWord(v);
+    after();
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); done(true); } if (e.key === 'Escape') done(false); });
+  inp.addEventListener('blur', () => { if (inp.isConnected) done(true); });
+  btn.replaceWith(inp); inp.focus();
+}
+
+/* ---- Thermometer: editing a meter in place of its card ---- */
+function openEditor(id) {
+  editing = id;
+  renderMeters();
+  const first = document.querySelector(`.meter[data-meter="${id}"] input`);
+  if (first) first.focus({ preventScroll: true });
+}
+function closeEditor() {
+  const id = editing;
+  editing = null;
+  renderMeters(); renderLast();
+  const b = document.querySelector(`.meter[data-meter="${id}"] .edit-btn`);
+  if (b) b.focus({ preventScroll: true });
+}
+function meterEditor(id) {
+  const m = state.settings.meters[id];
+  const title = h('h3', { text: m.name || DEFAULT_METERS[id].name });
+  const field = (label, key) => h('label', { class: 'field' }, h('span', { text: label }),
+    h('input', { type: 'text', value: m[key], maxlength: '40', oninput: e => {
+      m[key] = e.target.value; save();
+      if (key === 'name') title.textContent = m.name || DEFAULT_METERS[id].name;
+    } }));
+  const chips = h('div', { class: 'chips' });
+  const drawChips = () => {
+    chips.textContent = '';
+    for (const t of m.tags) {
+      chips.append(h('button', { class: 'chip del', type: 'button', 'aria-label': `${t} verwijderen`, text: t, onclick: () => {
+        m.tags = m.tags.filter(x => x !== t); selected[id].delete(t); save(); drawChips();
+        const a = chips.querySelector('.chip.add'); if (a) a.focus();
+      } }));
+    }
+    const add = h('button', { class: 'chip add', type: 'button', text: '+ woord', onclick: () => {
+      askWord(add, v => { if (!m.tags.some(t => t.toLowerCase() === v.toLowerCase())) { m.tags.push(v); save(); } },
+        () => { drawChips(); const a = chips.querySelector('.chip.add'); if (a) a.focus(); });
+    } });
+    chips.append(add);
+  };
+  drawChips();
+  const reset = confirmButton('link', 'Terug naar standaard', () => 'Zeker weten? Tik nog eens', () => {
+    state.settings.meters[id] = structuredClone(DEFAULT_METERS[id]);
+    selected[id].clear();
+    save(); renderMeters(); toast('Meter teruggezet');
+    const first = document.querySelector(`.meter[data-meter="${id}"] input`);
+    if (first) first.focus({ preventScroll: true });
+  });
+  const doneBtn = h('button', { class: 'edit-btn', type: 'button', text: 'Klaar', style: 'color:var(--accent-strong);font-weight:600', onclick: closeEditor });
+  return h('article', { class: 'card meter', 'data-meter': id },
+    h('div', { class: 'meter-head' }, title, doneBtn),
+    h('div', { class: 'meter-edit' },
+      field('Naam', 'name'),
+      field('Tekst bij 10 (bovenkant)', 'high'),
+      field('Tekst bij 0 (onderkant)', 'low'),
+      h('div', { class: 'field' }, h('span', { text: 'Woorden om uit te kiezen · tik op een woord om het te verwijderen' }), chips),
+      h('div', { class: 'edit-actions' }, reset,
+        h('button', { class: 'btn btn-small', type: 'button', text: 'Klaar', onclick: closeEditor }))));
+}
+
+function renderLast() {
+  const el = $('#t-last'), e = state.entries[state.entries.length - 1];
+  el.textContent = '';
+  if (!e) { el.textContent = 'Nog geen momenten opgeslagen'; return; }
+  const d = new Date(e.t), m = state.settings.meters;
+  el.append('Laatste moment: ', h('b', { text: `${dayLabel(d).toLowerCase()} ${timeStr(d)}` }),
+    ` · ${m.body.name} ${e.body} · ${m.mind.name} ${e.mind}`);
+}
+
+$('#t-when-toggle').addEventListener('click', () => {
+  const inp = $('#t-when-input'), showing = !inp.hidden;
+  inp.hidden = showing;
+  $('#t-when-text').textContent = showing ? 'Tijdstip: nu' : 'Tijdstip:';
+  $('#t-when-toggle').textContent = showing ? 'ander tijdstip' : 'toch nu';
+  if (!showing) { inp.value = localInputValue(new Date()); inp.max = localInputValue(new Date()); inp.focus(); }
+});
+$('#t-save').addEventListener('click', () => {
+  let t = new Date();
+  const inp = $('#t-when-input');
+  if (!inp.hidden && inp.value) { const x = new Date(inp.value); if (!isNaN(x)) t = x; }
+  state.entries.push({ id: uid(), t: t.toISOString(), body: state.draft.body, mind: state.draft.mind,
+    tags: { body: [...selected.body], mind: [...selected.mind] }, note: $('#t-note').value.trim() });
+  sortEntries(state.entries);
+  save();
+  selected.body.clear(); selected.mind.clear();
+  $('#t-note').value = '';
+  if (!inp.hidden) $('#t-when-toggle').click();
+  document.querySelectorAll('#t-meters .chip[aria-pressed="true"]').forEach(b => b.setAttribute('aria-pressed', 'false'));
+  renderLast();
+  toast(storageOk ? 'Moment opgeslagen' : 'Opgeslagen voor nu (deze browser bewaart niets)');
+});
+
+
+/* ---- Thermometer: Verloop (chart, stats, insights, entries) ---- */
+let range = '7';
+function periodFor(r) {
+  const now = new Date(), end = startOfDay(now).getTime() + DAY;
+  if (r === 'all') {
+    const first = state.entries[0] ? startOfDay(new Date(state.entries[0].t)).getTime() : end - 7 * DAY;
+    return { from: Math.min(first, end - 7 * DAY), to: end };
+  }
+  return { from: end - Number(r) * DAY, to: end };
+}
+function inPeriod(from, to) { return state.entries.filter(e => { const t = Date.parse(e.t); return t >= from && t < to; }); }
+
+function renderVerloop() {
+  const { from, to } = periodFor(range);
+  const list = inPeriod(from, to);
+  const m = state.settings.meters;
+  const lg = $('#t-legend'); lg.textContent = '';
+  for (const id of IDS) lg.append(h('span', {}, h('i', { style: `background:var(--${id})` }), m[id].name));
+  renderChart(list, from, to);
+  renderStats(list, from, to);
+  renderInsights(list);
+  renderEntries(list);
+}
+function renderChart(list, from, to) {
+  const box = $('#chart');
+  box.textContent = '';
+  if (!state.entries.length) {
+    box.append(h('div', { class: 'empty' }, 'Nog geen momenten. Sla bij ', h('b', { text: 'Nu' }), ' je eerste moment op.'));
+    return;
+  }
+  const W = Math.max(260, Math.floor(box.clientWidth || 500)), H = W < 500 ? 200 : 240;
+  const P = { l: 26, r: 10, t: 10, b: 26 };
+  const X = t => P.l + (t - from) / (to - from) * (W - P.l - P.r);
+  const Y = v => P.t + (10 - v) / 10 * (H - P.t - P.b);
+  const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'chart-svg', role: 'img',
+    'aria-label': `Grafiek van ${list.length} momenten` });
+  for (const v of [0, 5, 10]) {
+    s('line', { x1: P.l, x2: W - P.r, y1: Y(v), y2: Y(v), class: 'grid' }, svg);
+    const t = s('text', { x: P.l - 8, y: Y(v) + 4, 'text-anchor': 'end' }, svg); t.textContent = v;
+  }
+  const days = Math.round((to - from) / DAY);
+  if (days <= 7) {
+    for (let i = 0; i < days; i++) {
+      const d = from + i * DAY;
+      if (i > 0) s('line', { x1: X(d), x2: X(d), y1: P.t, y2: H - P.b, class: 'sep' }, svg);
+      const t = s('text', { x: X(d + DAY / 2), y: H - 8, 'text-anchor': 'middle' }, svg);
+      t.textContent = new Date(d).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric' });
+    }
+  } else {
+    const n = W < 500 ? 3 : 5;
+    const stepDays = Math.max(1, Math.ceil(days / n));
+    for (let d = to - DAY; d >= from; d -= stepDays * DAY) {
+      const x = X(d + DAY / 2);
+      if (x < P.l + 18) continue;
+      s('line', { x1: x, x2: x, y1: P.t, y2: H - P.b, class: 'sep' }, svg);
+      const t = s('text', { x, y: H - 8, 'text-anchor': 'middle' }, svg);
+      t.textContent = new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
+    }
+  }
+  const r = list.length > 60 ? 2.5 : 4;
+  for (const id of IDS) {
+    if (!list.length) break;
+    const pts = list.map(e => [X(Date.parse(e.t)), Y(e[id])]);
+    s('path', { class: `line ${id}`, d: pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') }, svg);
+  }
+  const m = state.settings.meters;
+  for (const id of IDS) for (const e of list) {
+    const c = s('circle', { cx: X(Date.parse(e.t)), cy: Y(e[id]), r, class: id }, svg);
+    const tt = s('title', {}, c);
+    const d = new Date(e.t);
+    tt.textContent = `${dayLabel(d)} ${timeStr(d)}\n${m.body.name}: ${e.body}  ·  ${m.mind.name}: ${e.mind}`;
+  }
+  box.append(svg);
+  if (!list.length) box.append(h('p', { class: 'empty', style: 'padding:8px', text: 'Geen momenten in deze periode.' }));
+}
+function avg(list, id) { return list.length ? list.reduce((a, e) => a + e[id], 0) / list.length : null; }
+function renderStats(list, from, to) {
+  const box = $('#t-stats'); box.textContent = '';
+  const prev = range === 'all' ? null : inPeriod(from - (to - from), from);
+  const periodName = range === 'all' ? '' : `vorige ${range} dagen`;
+  const days = new Set(list.map(e => startOfDay(new Date(e.t)).getTime())).size;
+  box.append(h('div', { class: 'stat' }, h('div', { class: 'k', text: 'Momenten' }), h('div', { class: 'v', text: list.length }),
+    h('div', { class: 'd', text: list.length ? `verspreid over ${days} ${days === 1 ? 'dag' : 'dagen'}` : 'in deze periode' })));
+  for (const id of IDS) {
+    const a = avg(list, id);
+    let delta = '';
+    if (a != null && prev && prev.length) {
+      const b = avg(prev, id), diff = a - b;
+      delta = Math.abs(diff) < 0.05 ? `gelijk aan ${periodName}` : `${diff > 0 ? '▲' : '▼'} ${fmt(Math.abs(diff))} ${diff > 0 ? 'zwaarder' : 'lichter'} dan ${periodName}`;
+    } else if (a != null && range !== 'all') delta = `geen gegevens over ${periodName}`;
+    else if (a != null) delta = 'gemiddelde';
+    box.append(h('div', { class: 'stat', style: `border-top:3px solid var(--${id})` },
+      h('div', { class: 'k', text: `Gemiddeld ${state.settings.meters[id].name.toLowerCase()}` }),
+      h('div', { class: 'v', text: a == null ? '–' : fmt(a) }),
+      h('div', { class: 'd', text: delta || 'nog geen gegevens' })));
+  }
+}
+function topTags(list, test) {
+  const counts = new Map();
+  for (const e of list) for (const id of IDS) if (test(e[id])) for (const t of e.tags[id]) counts.set(t, (counts.get(t) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 6);
+}
+function renderInsights(list) {
+  const box = $('#t-insights'); box.textContent = '';
+  const block = (title, sub, items) => {
+    const chips = h('div', { class: 'chips' });
+    if (items.length) for (const [t, c] of items) chips.append(h('span', { class: 'chip' }, t, h('span', { class: 'count', text: `×${c}` })));
+    else chips.append(h('p', { class: 'muted small', text: 'Nog te weinig gegevens. Kies woorden bij je momenten, dan verschijnen hier patronen.' }));
+    return h('div', { class: 'stat' }, h('h3', { text: title }), h('p', { class: 'muted small', style: 'margin:-4px 0 10px', text: sub }), chips);
+  };
+  box.append(block('Vaak bij zware momenten', 'woorden gekozen bij een score van 7 tot 10', topTags(list, v => v >= 7)));
+  box.append(block('Vaak bij lichte momenten', 'woorden gekozen bij een score van 0 tot 3', topTags(list, v => v <= 3)));
+}
+function renderEntries(list) {
+  const box = $('#t-entries'); box.textContent = '';
+  if (!list.length) return;
+  box.append(h('h3', { text: 'Momenten' }));
+  const m = state.settings.meters;
+  let lastDay = '', ul;
+  for (const e of [...list].reverse()) {
+    const d = new Date(e.t), dl = dayLabel(d);
+    if (dl !== lastDay) { box.append(h('h3', { class: 'day', text: dl })); ul = h('ul'); box.append(ul); lastDay = dl; }
+    const tags = h('div', { class: 'chips' });
+    for (const id of IDS) for (const t of e.tags[id]) tags.append(h('span', { class: 'chip', style: `border-color:var(--${id})`, text: t }));
+    const del = confirmButton('link danger', 'Verwijder', () => 'Zeker weten?', () => {
+      state.entries = state.entries.filter(x => x.id !== e.id);
+      save(); renderLast(); renderVerloop(); toast('Moment verwijderd');
+    });
+    ul.append(h('li', { class: 'entry' },
+      h('div', { class: 'entry-time', text: timeStr(d) }),
+      h('div', {},
+        h('div', { class: 'entry-vals' },
+          ...IDS.map(id => h('span', {}, h('i', { class: 't-dot', style: `background:${color(e[id])}` }), `${m[id].name} `, h('b', { text: e[id] })))),
+        tags.childNodes.length ? tags : null,
+        e.note ? h('p', { class: 'entry-note', text: e.note }) : null),
+      del));
+  }
+}
+$('#t-range').addEventListener('click', e => {
+  const b = e.target.closest('button[data-range]'); if (!b) return;
+  range = b.dataset.range;
+  document.querySelectorAll('#t-range button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  renderVerloop();
+});
+
+/* ---- Thermometer: your data (backup, CSV, wipe; bottom of Verloop) ---- */
+function renderData() {
+  const box = $('#t-data'); box.textContent = '';
+  const fileInp = h('input', { type: 'file', accept: '.json,application/json', hidden: true, onchange: importFile });
+  const wipe = confirmButton('btn btn-danger', 'Alle momenten wissen', () => {
+    const n = state.entries.length;
+    if (!n) { toast('Er is niets om te wissen'); return null; }
+    return `Ja, wis ${n} ${n === 1 ? 'moment' : 'momenten'}`;
+  }, () => {
+    state.entries = []; save(); renderLast(); renderVerloop(); toast('Alles gewist');
+  }, 4000);
+  box.append(h('h3', { text: 'Je gegevens' }),
+    h('p', { class: 'small', text: 'Alles blijft op dit apparaat, in deze browser. Wis je je browsergegevens, dan zijn je momenten weg. Maak daarom af en toe een back-up. Daarmee kun je ook overstappen naar een ander apparaat.' }),
+    h('div', { class: 'data-actions' },
+      h('button', { class: 'btn btn-ghost', type: 'button', text: 'Back-up downloaden', onclick: exportJson }),
+      h('button', { class: 'btn btn-ghost', type: 'button', text: 'Back-up terugzetten', onclick: () => fileInp.click() }),
+      h('button', { class: 'btn btn-ghost', type: 'button', text: 'Exporteren voor Excel (CSV)', onclick: exportCsv }),
+      wipe, fileInp));
+}
+const stamp = () => localInputValue(new Date()).slice(0, 10);
+function exportJson() {
+  download(`emotiethermometer-backup-${stamp()}.json`, JSON.stringify({ app: 'emotiethermometer', ...state }, null, 2), 'application/json');
+  toast('Back-up gedownload');
+}
+function exportCsv() {
+  const m = state.settings.meters;
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const rows = [['Datum', 'Tijd', m.body.name, m.mind.name, `Woorden ${m.body.name.toLowerCase()}`, `Woorden ${m.mind.name.toLowerCase()}`, 'Notitie']];
+  for (const e of state.entries) {
+    const d = new Date(e.t);
+    rows.push([d.toLocaleDateString('nl-NL'), timeStr(d), e.body, e.mind, e.tags.body.join(', '), e.tags.mind.join(', '), e.note]);
+  }
+  download(`emotiethermometer-${stamp()}.csv`, '﻿' + rows.map(r => r.map(q).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+  toast('CSV gedownload');
+}
+async function importFile(e) {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!Array.isArray(data.entries)) throw new Error('geen momenten');
+    const inc = normalize(data);
+    const hadNone = state.entries.length === 0;
+    const have = new Set(state.entries.map(x => x.id));
+    const add = inc.entries.filter(x => !have.has(x.id));
+    state.entries.push(...add); sortEntries(state.entries);
+    if (hadNone && data.settings) state.settings = inc.settings;
+    save(); renderMeters(); renderLast(); renderVerloop();
+    toast(add.length ? `${add.length} ${add.length === 1 ? 'moment' : 'momenten'} teruggezet` : 'Geen nieuwe momenten gevonden');
+  } catch { toast('Dit bestand kon ik niet lezen als back-up'); }
+}
+
+/* ---- Thermometer: switching between Nu and Verloop ---- */
+const subBtns = [...document.querySelectorAll('#t-sub [role=radio]')];
+let sub = 'nu';
+function showSub(name, focus) {
+  sub = name;
+  subBtns.forEach(b => { const on = b.dataset.p === name; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; if (on && focus) b.focus(); });
+  $('#t-nu').hidden = name !== 'nu';
+  $('#t-verloop').hidden = name !== 'verloop';
+  if (name === 'verloop') renderVerloop();
+}
+subBtns.forEach((b, i) => {
+  b.addEventListener('click', () => showSub(b.dataset.p));
+  b.addEventListener('keydown', e => {
+    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    showSub(subBtns[(i + d + subBtns.length) % subBtns.length].dataset.p, true);
+  });
+});
+
+// The chart needs the screen width, so redraw when the tab is shown or the width changes
+$('#thermo').addEventListener('tabshown', () => { if (sub === 'verloop') renderVerloop(); });
+let lastW = 0, resizeT;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => {
+    const w = $('#chart').clientWidth;
+    if (w && w !== lastW && sub === 'verloop' && !$('#thermo').hidden) { lastW = w; renderVerloop(); }
+  }, 150);
+});
+
+/* ---- Thermometer: start ---- */
+$('#t-storage').hidden = storageOk;
+renderMeters();
+renderLast();
+renderData();
+showSub('nu');
+</script>
+</body>
+</html>
