@@ -1,5 +1,5 @@
 // Makes Wellness available offline. Bump VERSION with every new upload of index.html.
-const VERSION = 'wellness-v2';
+const VERSION = 'wellness-v3';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

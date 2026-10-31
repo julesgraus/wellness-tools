@@ -157,7 +157,6 @@
   .wave-dot { fill: var(--accent); stroke: var(--surface); stroke-width: 3; filter: drop-shadow(0 0 8px var(--orb-b)); }
   .wave-labels text { fill: var(--muted); font-size: 14px; text-anchor: middle; }
   .phase-sub { color: var(--muted); min-height: 1.5em; margin: 4px 0 2px; }
-  .rounds { color: var(--muted); font-size: .9rem; min-height: 1.4em; margin: 0; }
   .encourage {
     margin: 8px auto 0; max-width: 320px;
     background: var(--accent-soft); border-radius: 12px; padding: 8px 12px;
@@ -493,7 +492,6 @@
           </svg>
         </div>
         <p class="phase-sub" id="phase-sub" aria-live="polite"></p>
-        <p class="rounds" id="rounds"></p>
         <p class="encourage" id="encourage" hidden>Goed bezig. Ga door zolang je wilt.</p>
 
         <div class="controls">
@@ -833,7 +831,6 @@ const countEls = $$('.js-count');
 const viewBtns = $$('#views [role=radio]');
 const rhythmBtns = $$('#rhythms [role=radio]');
 const subEl = $('phase-sub');
-const roundsEl = $('rounds');
 const encourageEl = $('encourage');
 const startBtn = $('start');
 const soundBtn = $('sound');
@@ -917,7 +914,6 @@ function render(t) {
     if (smp.name === 'in') waveStrength = 0.8 + Math.random() * 0.2;
     setText(phaseEls, LABEL[smp.name]);
     subEl.textContent = SUB[smp.name];
-    roundsEl.textContent = `Ronde ${smp.cycle + 1}`;
   }
   if (t >= ENCOURAGE_AFTER) encourageEl.hidden = false;
 }
@@ -961,7 +957,6 @@ function reset() {
   setText(phaseEls, 'Klaar?');
   setText(countEls, '');
   subEl.textContent = FOLLOW[view];
-  roundsEl.textContent = '';
   encourageEl.hidden = true;
 }
 
